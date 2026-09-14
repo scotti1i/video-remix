@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.venv/
+dist/
+*.egg-info/
+.env
+.env.*
+projects/
+runtime/
+.DS_Store
+*.mp4
+*.mov
+*.wav
+*.mp3
+*.png
+*.jpg
