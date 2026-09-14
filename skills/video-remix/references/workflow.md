@@ -1,6 +1,16 @@
 # 后端操作与制作方法
 
-以下命令均是 `bootstrap.py run --engine <本次 engine> --` 后的参数。`--project <目录>` 位于子命令前。不要把用户项目放在 engine 目录里。
+以下命令均是 `bootstrap.py run --` 后的参数。`--project <目录>` 位于子命令前，启动器会读取该项目版本锁。不要把用户项目放在 engine 目录里，也不要对已有项目强行传最新版 `--engine`。
+
+## 从 0.1.0 升级启动器
+
+若已安装的 `bootstrap.py --help` 没有 `project-upgrade`，这是旧启动器。用本次 ensure 返回的可信 engine 下的 `install.py --destination <当前 Skill 绝对目录>` 更新 Skill（保留安装备份），再用新启动器 `ensure --project <目录>` 解析项目。不要让旧启动器把新版后端直接用于旧项目。只下载 ZIP 手动安装、没有安装器管理标记的目录不覆盖，提示用户保留旧目录后安装新包。
+
+## 项目版本
+
+新项目自动生成 `runtime-lock.json`，旧项目按原任务记录的 Git 提交固定版本；没有任务记录的项目经兼容检查后固定当前版。历史版本冲突或无法判断时明确报告，不猜测。将版本锁和项目文件一起备份或搬到另一台机器，可从可信源恢复同一提交。
+
+`bootstrap.py update` 只更新默认后端。用户要升级已有项目时：先 `project-upgrade --project <目录>` 查看兼容结果，再加 `--apply`。有未结束的视频任务时先用旧版完成；不兼容不迁移，当前没有跨格式自动转换器。成功切换前的配置和记录保存在项目 `.runtime-backups/`，媒体不复制也不改写。
 
 ## 1. 项目与参考
 

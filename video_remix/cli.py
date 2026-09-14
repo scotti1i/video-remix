@@ -9,9 +9,10 @@ import sys
 
 from . import __version__
 from .analysis import analyze
+from .compatibility import inspect
 from .dreamina import Dreamina
 from .project import add_asset, add_variant, compare, initialize, status
-from .runner import attach, execute
+from .runner import attach, execute, revision
 from .storage import atomic, locked, now, project_at, read, slug
 
 
@@ -66,6 +67,7 @@ def parser():
     recover.add_argument("task_id")
     sub.add_parser("status")
     sub.add_parser("compare")
+    sub.add_parser("compatibility", help="只读检查项目格式与规格，不调用生成平台")
     rev = sub.add_parser("review")
     rev.add_argument("variant")
     rev.add_argument("decision", choices=("selected", "rejected", "pending"))
@@ -79,6 +81,11 @@ def dispatch(a):
     if a.command == "init":
         return initialize(a.path, a.name)
     root = project_at(a.project)
+    if a.command == "compatibility":
+        return inspect(root)
+    pin_file = root / "runtime-lock.json"
+    if pin_file.exists() and read(pin_file).get("revision") != revision():
+        raise ValueError("后端与项目固定版本不一致，请通过 Skill 启动器运行")
     handlers = {
         "asset": lambda: add_asset(root, a.id, a.file, a.role),
         "analyze": lambda: analyze(root, a.asset, a.model, a.brief),

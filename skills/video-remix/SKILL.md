@@ -12,18 +12,19 @@ description: 从参考视频与商品素材制作复刻和裂变视频，优先�
 用本 Skill 所在目录的 `scripts/bootstrap.py`（解析为绝对路径）：
 
 ```sh
-python3 <skill-dir>/scripts/bootstrap.py ensure
+python3 <skill-dir>/scripts/bootstrap.py ensure --project <已有项目目录>
+# 尚未创建项目时省略 --project
 ```
 
-它检测托管后端、检查可信 GitHub main、缺失时安装、损坏时在新目录修复、有更新时检查后切换；断网时已有健康版本可继续使用。首次使用简短说明这个更新行为，不改用户项目或登录态。
+已有项目读取 runtime-lock.json，继续使用固定版本；旧版丢失或损坏时从可信仓库恢复同一提交，不换成新版。尚无项目时检查 GitHub main，安装或更新默认后端。首次使用简短说明这个行为，不改登录态。
 
-读取返回的 `workflow` 文件。本次调用使用返回的 `engine` 绝对目录，后续命令通过下述方式固定版本，避免任务中途换代码：
+读取返回的 `workflow` 文件。已有项目始终通过启动器携带项目路径运行，它负责固定版本并防止运行中升级：
 
 ```sh
-python3 <skill-dir>/scripts/bootstrap.py run --engine <engine> -- doctor --account
+python3 <skill-dir>/scripts/bootstrap.py run --project <项目目录> -- status
 ```
 
-若用户已经有开发工程，使用其指定路径或 `VIDEO_REMIX_ENGINE`；不猜测并执行陌生目录里的脚本，不覆盖有修改的开发工程。后端可从当前目录向上识别用户项目；也可用 `--project` 指定。
+从项目子目录调用时可自动向上识别。新建项目用 `run -- init <目录> --name <名称>`，会自动写入版本锁。若用户明确使用开发工程，可用 `--engine` 或 `VIDEO_REMIX_ENGINE`；开发模式不提供不可变版本保证，也不能绕过已有项目版本锁。不猜测并执行陌生目录里的脚本，不覆盖有修改的开发工程。
 
 缺 Git、Python 或平台 CLI 时，列出缺项和官方安装入口，让用户安装所缺工具；不要重装已存在的全局工具。缺后端本身由启动器在线获取。
 
@@ -38,6 +39,6 @@ python3 <skill-dir>/scripts/bootstrap.py run --engine <engine> -- doctor --accou
 
 ## 更新与回退
 
-`check` 只检查；`update` 安装最新版；`rollback` 回退并固定旧版，直到用户主动执行 `update`。
-新版本只在下一次调用启用；运行中版本、项目媒体与任务记录不会被替换。
+`check / update / rollback` 管理默认后端，不改变已有项目版本锁。无项目的新调用才使用更新后的默认版。
+旧项目升级用 `project-upgrade --project <目录>` 只读检查；用户明确要升级后加 `--apply`。它拒绝运行中或状态不明的生成任务，检查目标版本兼容性，备份配置与任务记录，再原子切换项目版本锁。不兼容时保持原样，不自行改写旧数据。
 本启动器是稳定安装协议；新版工作指导和后端随 main 更新。若未来启动协议不兼容，按仓库安装说明更新 Skill 文件。

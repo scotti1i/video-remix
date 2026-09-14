@@ -1,6 +1,8 @@
 """素材、变体与浏览索引。"""
 
 import html
+import json
+import os
 from pathlib import Path
 import shutil
 import uuid
@@ -16,6 +18,8 @@ def initialize(path, name):
             raise ValueError("项目已存在，不覆盖")
         atomic(root / "project.json", {"format": "video-remix-project.v1",
                "name": name, "created_at": now(), "assets": {}})
+        if os.environ.get("VIDEO_REMIX_RUNTIME_PIN"):
+            atomic(root / "runtime-lock.json", json.loads(os.environ["VIDEO_REMIX_RUNTIME_PIN"]))
     return {"project": str(root)}
 
 

@@ -4,9 +4,11 @@
 
 把参考视频和商品素材交给助手，得到可执行提示词、复刻/裂变版本、生成原片和对比结果。首版优先无口播的 Before / After 视频。Skill 负责内容判断，轻量后端负责执行和记录。
 
-当前为供小规模真实使用的 `0.1.0`。不提供零密钥演示；分析和生成使用用户自己的账号。自动更新、任务管理已测试；新后端的视频生成适配器使用即梦现有 CLI，尚未用新的 Before/After 商品样本验收成片效果。
+当前为供小规模真实使用的 `0.2.0`。不提供零密钥演示；分析和生成使用用户自己的账号。自动更新、项目版本固定与任务管理已测试；新后端的视频生成适配器使用即梦现有 CLI，尚未用新的 Before/After 商品样本验收成片效果。
 
 ## 安装
+
+把本仓库链接发给你的 AI 助手，并说：**“帮我安装 video-remix Skill，检查环境，告诉我还缺什么配置。”** 手动安装包在本仓库 [Releases](https://github.com/scotti1i/video-remix/releases) 中。
 
 需要 macOS 或 Linux、Python 3.10+ 和 Git。无需安装 Python 运行依赖。
 
@@ -43,7 +45,7 @@ Skill 每次启动会检测本地后端并读取最新工作指导。即使只�
 
 视频提供方当前**只实现即梦**。Gemini 用于分析；其他视频 API 需要独立适配器，当前没有假装通用的 HTTP 包装器。新增适配器接口见 [dreamina.py](video_remix/dreamina.py)。
 
-## 更新：下一次调用生效
+## 更新：新项目用新版，老项目保持原版
 
 稳定启动器：`skills/video-remix/scripts/bootstrap.py`。
 
@@ -61,6 +63,22 @@ python3 skills/video-remix/scripts/bootstrap.py rollback
 - 自动更新工作指导与后端。启动协议本身未来若不兼容，需要再运行安装器更新 Skill；不宣称编辑已加载的聊天上下文。
 - 所有旧版本保留，可手动清理确认不用的版本；本工具不自动删除用户文件。
 
+**从 0.1.0 升级：需要更新一次 Skill 启动器。** 对本仓库执行 `git pull --ff-only` 后重新运行 `python3 install.py`；或让助手按新版工作指导更新已安装 Skill。只更新后端还不能获得项目固定能力。安装器保留旧 Skill 备份，不覆盖非本工具管理的目录。
+
+通过托管 Skill 新建项目时，`runtime-lock.json` 记录可信仓库和完整 Git 提交。继续旧项目时自动使用该版本；即使默认后端已更新也不跟着切换。项目搬家或本地旧代码丢失时，从可信仓库恢复**同一提交**；离线缺版本时明确停下，不擅自换新版。
+
+```sh
+python3 skills/video-remix/scripts/bootstrap.py ensure --project /path/to/project
+python3 skills/video-remix/scripts/bootstrap.py run --project /path/to/project -- status
+python3 skills/video-remix/scripts/bootstrap.py project-upgrade --project /path/to/project
+# 检查确认后显式升级：
+python3 skills/video-remix/scripts/bootstrap.py project-upgrade --project /path/to/project --apply
+```
+
+项目升级先阻止运行中或状态不明的生成任务，再做本地只读兼容检查；通过后备份项目配置和任务记录，最后切换版本锁。检查或备份失败保持旧锁，媒体不改动。**当前只支持兼容格式升级，不会自动转换不兼容的数据。** 检查验证可读格式与规格，不代表新平台接口和成片效果已验证；也不能保证外部模型、CLI、Python 或 GitHub 永久可用。保留 Git 提交历史和已发布版本，不强推删除旧代码。
+
+0.1.0 旧项目首次使用新启动器时按已有任务中的后端提交固定；任务版本不一致或缺失则提示核对，不自动猜版本。显式开发目录和直接调用后端属于开发方式，不提供托管安装的完整生命周期保证。
+
 运行时默认放在 `~/.local/share/video-remix/`，可用 `VIDEO_REMIX_HOME` 改变。你自己的开发目录用 `VIDEO_REMIX_ENGINE` 或 `--engine` 显式指定，自动更新不会改写它。
 
 Fork 用户通过启动器 `--repo <自己的 Git URL>` 选择源，并使用独立 `--home`；不把已有运行时静默改绑另一源。
@@ -72,6 +90,8 @@ Fork 用户通过启动器 `--repo <自己的 Git URL>` 选择源，并使用独
 ```text
 my-product/
   project.json          素材索引
+  runtime-lock.json     项目固定的仓库与 Git 提交
+  .runtime-backups/     主动升级前的配置与记录备份
   assets/               输入文件与 SHA-256
   analysis/             Gemini 原始返回、分析、调用记录
   variants/<id>/
