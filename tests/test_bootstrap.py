@@ -55,6 +55,8 @@ class BootstrapTests(unittest.TestCase):
         rollback = self.ensure(rollback=True)
         self.assertEqual(rollback["revision"], first["revision"])
         self.assertEqual(self.ensure(offline=True)["revision"], first["revision"])
+        self.assertEqual(self.ensure()["action"], "held")
+        self.assertEqual(self.ensure(force=True)["revision"], second["revision"])
 
     def test_corrupt_local_engine_repaired_in_new_directory(self):
         first = self.ensure()

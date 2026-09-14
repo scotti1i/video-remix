@@ -38,6 +38,6 @@ python3 <skill-dir>/scripts/bootstrap.py run --engine <engine> -- doctor --accou
 
 ## 更新与回退
 
-`check` 只检查；`update` 安装最新版；`rollback` 回退并提示用 `--offline` 保持旧版。
+`check` 只检查；`update` 安装最新版；`rollback` 回退并固定旧版，直到用户主动执行 `update`。
 新版本只在下一次调用启用；运行中版本、项目媒体与任务记录不会被替换。
 本启动器是稳定安装协议；新版工作指导和后端随 main 更新。若未来启动协议不兼容，按仓库安装说明更新 Skill 文件。

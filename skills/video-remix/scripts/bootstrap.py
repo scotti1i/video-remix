@@ -107,7 +107,7 @@ def install_version(home, repo, sha):
     return {"directory": directory, "revision": sha}
 
 
-def resolve(home, repo, offline=False, check=False, rollback=False):
+def resolve(home, repo, offline=False, check=False, rollback=False, force=False):
     with lock(home):
         file = home / "runtime.json"
         state = read(file)
@@ -122,6 +122,8 @@ def resolve(home, repo, offline=False, check=False, rollback=False):
             if not valid:
                 raise RuntimeError("离线且没有健康的本地版本；联网运行 ensure 修复")
             return result(home, state, "offline")
+        if state.get("held") and valid and not check and not force:
+            return result(home, state, "held", "回退版本已固定；执行 update 恢复自动更新")
         try:
             sha = newest(repo)
         except (RuntimeError, OSError, subprocess.TimeoutExpired):
@@ -134,9 +136,12 @@ def resolve(home, repo, offline=False, check=False, rollback=False):
         if not valid or state["current"]["revision"] != sha:
             next_version = install_version(home, repo, sha)
             state = {"repo": repo, "current": next_version,
-                     "previous": state.get("current") if valid else state.get("previous")}
+                     "previous": state.get("current") if valid else state.get("previous"), "held": False}
             write(file, state)
             return result(home, state, "updated")
+        if force and state.get("held"):
+            state["held"] = False
+            write(file, state)
         return result(home, state, "current")
 
 
@@ -148,8 +153,9 @@ def do_rollback(home, file, state):
     if not healthy(old, previous["revision"]):
         raise RuntimeError("旧版本不健康，拒绝切换")
     state["current"], state["previous"] = previous, state["current"]
+    state["held"] = True
     write(file, state)
-    return result(home, state, "rolled_back", "本次已回退；用 run --offline 保持旧版，联网 ensure 会重新跟随 main")
+    return result(home, state, "rolled_back", "已回退并固定旧版；执行 update 后恢复自动更新")
 
 
 def result(home, state, action, warning=None):
@@ -178,7 +184,7 @@ def main(argv=None):
                 "workflow": str(engine / "skills/video-remix/references/workflow.md")}
     else:
         info = resolve(Path(args.home).expanduser().resolve(), args.repo, args.offline,
-                       args.action == "check", args.action == "rollback")
+                       args.action == "check", args.action == "rollback", args.action == "update")
     if args.action == "run":
         if info.get("warning"):
             print(info["warning"], file=sys.stderr)
