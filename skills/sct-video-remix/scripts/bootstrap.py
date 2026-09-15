@@ -251,7 +251,7 @@ def upgrade_project(root, home, repo, apply=False, offline=False):
         if old.get("repo") != repo:
             raise RuntimeError("项目更新源与可信仓库不一致")
         busy = [str(p.parent.name) for p in (root / "variants").glob("*/run.json")
-                if read(p).get("phase") not in ("downloaded", "failed")]
+                if unfinished(read(p))]
         if busy:
             raise RuntimeError("仍有未完成或提交状态不明的任务，先用旧版完成：" + ", ".join(busy))
         if offline:
@@ -267,6 +267,15 @@ def upgrade_project(root, home, repo, apply=False, offline=False):
         backup = backup_metadata(root)
         write(root / "runtime-lock.json", {**old, "revision": target["revision"]})
         return {**output, "applied": True, "backup": str(backup)}
+
+
+def unfinished(record):
+    if record.get("phase") in ("downloaded", "failed"):
+        return False
+    # 0.2.x 已查询到 fail，却错误留下 polling；只接受已有任务的明确终止证据。
+    known_failure = str(record.get("provider_status", "")).strip().lower() in {
+        "fail", "failed", "failure", "error", "cancelled", "canceled"}
+    return not (record.get("phase") == "polling" and record.get("task_id") and known_failure)
 
 
 def backup_metadata(root):

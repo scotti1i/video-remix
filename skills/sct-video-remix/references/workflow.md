@@ -82,6 +82,8 @@ Gemini 分析真实调用：
 
 同批任务默认串行：上一条未完成下载时返回 `stop=pending`，不抢先下后一单；恢复同一批即可继续。平台 `fail` 也是终止失败，不是仍在生成。查看 `queue_info.queue_status` 区分 Queueing 与 Generating，没有字段就说未知，不凭 querying 猜测。已知失败保存安全错误分类，不盲目切模型/新建重试；用户授权的补测才新建版本。
 
+0.2.x 旧记录若已有 task_id 且查询证据为 `provider_status=fail`、但 phase 错留 polling，新启动器允许备份后兼容升级，不改写旧证据。只有 querying 或 submit_intent 仍阻止升级；先用原版查原任务取得真实终止结果，不能手改成失败绕过。
+
 若标记 submit_intent（结果不明），先从平台查到原任务，使用 `attach <版本ID> <任务ID>`；它会核对任务 ID 和完整提示词再绑定。查不到时停下，请用户核实，不自动重交。
 
 ## 4. 管理与交付

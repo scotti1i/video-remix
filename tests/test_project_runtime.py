@@ -101,6 +101,21 @@ class ProjectRuntimeTests(unittest.TestCase):
         with bootstrap.lock(self.project, ".project.lock"):
             self.call("project-upgrade", "--project", str(self.project), "--apply", success=False)
 
+    def test_known_legacy_fail_does_not_deadlock_upgrade(self):
+        self.newer()
+        record = self.project / "variants/test/run.json"
+        record.parent.mkdir(parents=True)
+        old = {"phase": "polling", "provider_status": "fail", "task_id": "confirmed-task"}
+        bootstrap.write(record, old)
+        result = self.call("project-upgrade", "--project", str(self.project), "--apply")
+        self.assertTrue(result["applied"])
+        self.assertEqual(bootstrap.read(record), old)
+        self.assertEqual(bootstrap.read(Path(result["backup"]) / "variants/test/run.json"), old)
+        for data in ({"phase": "submit_intent", "provider_status": "fail", "task_id": "x"},
+                     {"phase": "polling", "provider_status": "fail"},
+                     {"phase": "polling", "provider_status": "querying", "task_id": "x"}):
+            self.assertTrue(bootstrap.unfinished(data))
+
     def test_move_project_restore_exact_version_and_offline(self):
         self.newer()
         moved = self.base / "moved"
