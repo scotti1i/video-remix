@@ -10,8 +10,63 @@ import subprocess
 import sys
 import tempfile
 import uuid
+import re
+from urllib.parse import urlsplit
 
 DEFAULT_REPO = "https://github.com/scotti1i/video-remix.git"
+INSTALL_CONFIG = "installation.json"
+
+
+def validate_install_config(data):
+    allowed = {"format", "runtime_home", "repo"}
+    if not isinstance(data, dict) or set(data) - allowed or data.get("format") != "video-remix-install.v1":
+        raise ValueError("安装配置格式无效；仅允许 format/runtime_home/repo")
+    for field in ("runtime_home", "repo"):
+        if field in data and (not isinstance(data[field], str) or not data[field].strip()
+                              or any(ord(char) < 32 for char in data[field])):
+            raise ValueError(f"安装配置 {field} 必须是非空字符串，不能包含控制字符")
+    if "runtime_home" in data and not Path(data["runtime_home"]).is_absolute():
+        raise ValueError("安装配置 runtime_home 必须是绝对路径")
+    if "repo" in data:
+        repo = data["repo"]
+        local = Path(repo).is_absolute()
+        scp = re.fullmatch(r"git@[A-Za-z0-9.-]+:[A-Za-z0-9_./-]+", repo)
+        url = urlsplit(repo)
+        remote = (url.scheme in ("https", "ssh") and bool(url.hostname) and bool(url.path)
+                  and not url.password and not url.query and not url.fragment
+                  and (not url.username or (url.scheme == "ssh" and url.username == "git"))
+                  and not any(char.isspace() for char in repo))
+        if not (local or scp or remote):
+            raise ValueError("安装配置 repo 需要绝对本地路径或无密钥的 HTTPS/SSH Git 地址")
+    return data
+
+
+def read_install_config(directory):
+    # 只读安装目录侧车，不从项目/工作目录继承代码来源或执行配置脚本。
+    path = directory / INSTALL_CONFIG
+    if path.is_symlink():
+        raise ValueError("安装配置不能是符号链接")
+    if not path.exists():
+        return {}
+    if not path.is_file() or path.stat().st_size > 16384:
+        raise ValueError("安装配置必须是小于 16 KiB 的普通 JSON 文件")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, UnicodeError):
+        raise ValueError("安装配置不是有效 UTF-8 JSON；未采用其他默认源") from None
+    return validate_install_config(data)
+
+
+def installed_project_route(home, repo, root, config, explicit):
+    # 安装默认只影响新调用；公共旧项目可继续用已绑定的标准安装。
+    if explicit or not root or not config:
+        return home, repo
+    standard = Path("~/.local/share/video-remix").expanduser().resolve()
+    if home == standard or read(root / "runtime-lock.json").get("repo") != DEFAULT_REPO:
+        return home, repo
+    if read(standard / "runtime.json").get("repo") == DEFAULT_REPO:
+        return standard, DEFAULT_REPO
+    return home, repo
 
 
 def write(path, data):
@@ -340,7 +395,7 @@ def execute_action(args, backend_args, home, root):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Video Remix 自动安装 / 更新启动器")
     parser.add_argument("action", choices=("ensure", "check", "update", "rollback", "run", "project-upgrade"))
-    parser.add_argument("--home", default=os.environ.get("VIDEO_REMIX_HOME", "~/.local/share/video-remix"))
+    parser.add_argument("--home", help="覆盖环境变量或安装配置中的运行时目录")
     parser.add_argument("--repo", help="显式指定可信 Git 仓库；默认官方 main")
     parser.add_argument("--engine", default=os.environ.get("VIDEO_REMIX_ENGINE"), help="显式开发目录，跳过托管更新")
     parser.add_argument("--offline", action="store_true")
@@ -350,6 +405,10 @@ def main(argv=None):
     split = argv.index("--") if "--" in argv else len(argv)
     args = parser.parse_args(argv[:split])
     backend_args = argv[split + 1:]
+    explicit_runtime = args.home is not None or args.repo is not None or bool(os.environ.get("VIDEO_REMIX_HOME")) or bool(args.engine)
+    config = read_install_config(Path(__file__).resolve().parent.parent)
+    args.home = args.home or os.environ.get("VIDEO_REMIX_HOME") or config.get("runtime_home") or "~/.local/share/video-remix"
+    args.repo = args.repo if args.repo is not None else config.get("repo")
     home = Path(args.home).expanduser().resolve()
     if args.project and args.action in ("check", "update", "rollback"):
         raise RuntimeError("默认后端更新不接收 --project；升级项目请用 project-upgrade")
@@ -361,6 +420,7 @@ def main(argv=None):
             raise RuntimeError("启动器与后端指定了不同项目；请只指定同一个项目")
     if not root and args.action in ("ensure", "run", "project-upgrade"):
         root = backend_project(backend_args) if args.action == "run" else project_root()
+    home, args.repo = installed_project_route(home, args.repo, root, config, explicit_runtime)
     guard = lock(root, ".runtime.lock") if root else contextlib.nullcontext()
     with guard:
         info = execute_action(args, backend_args, home, root)

@@ -1,4 +1,7 @@
 import json
+import os
+import contextlib
+import io
 from pathlib import Path
 import shutil
 import subprocess
@@ -8,6 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from test_bootstrap import bootstrap
+from test_install import installer
 
 
 SOURCE = Path(__file__).resolve().parents[1]
@@ -196,6 +200,55 @@ class ProjectRuntimeTests(unittest.TestCase):
         other = self.base / "other-project"
         self.call("run", "--", "init", str(other), "--name", "Other")
         self.call("run", "--project", str(self.project), "--", "--project", str(other), "status", success=False)
+
+    def test_installed_defaults_resume_old_project_offline_after_default_update(self):
+        dest = installer.install(self.base / "installed/sct-video-remix",
+                                 runtime_home=self.home, repo=str(self.repo))
+        latest = self.newer()
+        self.call("update")
+        script = dest / "scripts/bootstrap.py"
+        environment = dict(os.environ)
+        environment.pop("VIDEO_REMIX_HOME", None)
+        environment.pop("VIDEO_REMIX_ENGINE", None)
+        result = subprocess.run([sys.executable, str(script), "ensure", "--project", str(self.project), "--offline"],
+                                cwd=self.base, env=environment, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["revision"], self.first)
+        result = subprocess.run([sys.executable, str(script), "ensure", "--offline"],
+                                cwd=self.base, env=environment, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["revision"], latest)
+        installer.install(dest)
+        pin = self.pin()
+        pin["repo"] = "https://untrusted.invalid/repo.git"
+        bootstrap.write(self.project / "runtime-lock.json", pin)
+        result = subprocess.run([sys.executable, str(script), "ensure", "--project", str(self.project), "--offline"],
+                                cwd=self.base, env=environment, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("来源不匹配", result.stderr)
+
+    def test_natural_installed_call_routes_existing_public_pin_to_public_runtime(self):
+        dest = installer.install(self.base / "installed/sct-video-remix",
+                                 runtime_home=self.home, repo=str(self.repo))
+        standard = self.base / "public-runtime"
+        shutil.copytree(self.home, standard)
+        state = bootstrap.read(standard / "runtime.json")
+        state["repo"] = bootstrap.DEFAULT_REPO
+        bootstrap.write(standard / "runtime.json", state)
+        pin = self.pin()
+        pin["repo"] = bootstrap.DEFAULT_REPO
+        bootstrap.write(self.project / "runtime-lock.json", pin)
+        def expand(path):
+            return standard if str(path) == "~/.local/share/video-remix" else path
+        output = io.StringIO()
+        with patch.object(bootstrap, "__file__", str(dest / "scripts/bootstrap.py")), \
+                patch.object(Path, "expanduser", expand), \
+                patch.dict("os.environ", {}, clear=True), contextlib.redirect_stdout(output):
+            bootstrap.main(["ensure", "--project", str(self.project), "--offline"])
+        result = json.loads(output.getvalue())
+        self.assertEqual(result["revision"], self.first)
+        self.assertTrue(Path(result["engine"]).is_relative_to(standard.resolve()))
+        self.assertEqual(self.pin(), pin)
 
 
 if __name__ == "__main__":

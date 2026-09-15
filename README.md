@@ -33,6 +33,21 @@ python3 install.py --destination ~/.codex/skills/sct-video-remix
 
 Skill 每次启动会检测本地后端并读取最新工作指导。即使只下载 `skills/sct-video-remix/` 文件夹，它也能从 GitHub 安装缺失的后端。
 
+### 可选：固定本机 Skill 的默认运行时来源
+
+本地开发或候选验证可在安装时保存默认目录和可信源，之后自然调用 Skill 无需每次重填参数：
+
+```sh
+python3 install.py --destination ~/.agents/skills/sct-video-remix \
+  --runtime-home /absolute/runtime-candidate --repo /absolute/video-remix
+```
+
+安装目录的 `installation.json` 只保存 `video-remix-install.v1` 格式、绝对运行时路径及无密钥 Git 来源。仓库地址支持绝对本地路径、HTTPS 或 SSH；不接受带密码、令牌查询参数的 URL。重新运行安装器会保留已有配置，显式给出的安装参数只更新对应字段；配置损坏时停止，不静默改回其他源。该侧车不会从源码目录复制到其他用户的安装。
+
+启动时 `--home` 优先于 `VIDEO_REMIX_HOME`，再用安装配置和标准默认目录；`--repo` 优先于安装配置，再按该运行时已有可信绑定或公共 GitHub 默认选择。无侧车的普通下载用户保持原有 GitHub 默认。配置只来自实际安装目录，不读取项目里的同名文件。
+
+本地候选使用本地仓库的已提交 main，安装它不会发布 GitHub；其他用户只有在公共仓库更新后才会通过默认入口取得新版。已有项目仍固定原提交。若未显式覆盖运行时，旧项目锁定公共 GitHub 源、且 `~/.local/share/video-remix` 已绑定该公共源，启动器继续用这套公共运行时；其他不匹配来源仍拒绝，不凭项目锁自动信任任意仓库。
+
 ## 真实调用需要什么
 
 | 能力 | 依赖 |
