@@ -87,12 +87,13 @@ def read(path):
 
 
 @contextlib.contextmanager
-def lock(home, filename=".update.lock"):
+def lock(home, filename=".update.lock", shared=False):
     import fcntl
     home.mkdir(parents=True, exist_ok=True)
     with (home / filename).open("a") as stream:
         try:
-            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            mode = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
+            fcntl.flock(stream, mode | fcntl.LOCK_NB)
         except BlockingIOError:
             raise RuntimeError("另一个进程正在检查版本，请稍后重试") from None
         try:
@@ -421,7 +422,8 @@ def main(argv=None):
     if not root and args.action in ("ensure", "run", "project-upgrade"):
         root = backend_project(backend_args) if args.action == "run" else project_root()
     home, args.repo = installed_project_route(home, args.repo, root, config, explicit_runtime)
-    guard = lock(root, ".runtime.lock") if root else contextlib.nullcontext()
+    shared = bool(root and args.action in ("ensure", "run") and (root / "runtime-lock.json").is_file())
+    guard = lock(root, ".runtime.lock", shared=shared) if root else contextlib.nullcontext()
     with guard:
         info = execute_action(args, backend_args, home, root)
     if isinstance(info, int):

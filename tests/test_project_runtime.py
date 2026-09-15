@@ -2,6 +2,7 @@ import json
 import os
 import contextlib
 import io
+import selectors
 from pathlib import Path
 import shutil
 import subprocess
@@ -104,6 +105,53 @@ class ProjectRuntimeTests(unittest.TestCase):
             self.call("project-upgrade", "--project", str(self.project), "--apply", success=False)
         with bootstrap.lock(self.project, ".project.lock"):
             self.call("project-upgrade", "--project", str(self.project), "--apply", success=False)
+
+    @contextlib.contextmanager
+    def holding_runtime_process(self, action):
+        # 在真实启动器锁内暂停工作体，验证操作系统跨进程锁的作用域。
+        code = ("import importlib.util,sys\n"
+                "spec=importlib.util.spec_from_file_location('bootstrap',sys.argv[1])\n"
+                "module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)\n"
+                "def hold(*args):\n print('locked',flush=True);sys.stdin.readline();return {}\n"
+                "module.execute_action=hold\nmodule.main(sys.argv[2:])\n")
+        script = SOURCE / "skills/video-remix/scripts/bootstrap.py"
+        args = [sys.executable, "-c", code, str(script), action, "--home", str(self.home),
+                "--repo", str(self.repo), "--project", str(self.project)]
+        if action == "run":
+            args += ["--", "status"]
+        process = subprocess.Popen(args, cwd=self.base, text=True, stdin=subprocess.PIPE,
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        try:
+            with selectors.DefaultSelector() as selector:
+                selector.register(process.stdout, selectors.EVENT_READ)
+                self.assertTrue(selector.select(timeout=10), "子进程未取得运行锁")
+            self.assertEqual(process.stdout.readline().strip(), "locked")
+            yield process
+            output, errors = process.communicate("release\n", timeout=10)
+            self.assertEqual(process.returncode, 0, output + errors)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.communicate()
+            for stream in (process.stdin, process.stdout, process.stderr):
+                stream.close()
+
+    def test_two_pinned_processes_share_runtime_lock_while_upgrade_is_blocked(self):
+        with self.holding_runtime_process("ensure") as first:
+            with self.holding_runtime_process("run") as second:
+                self.assertIsNone(first.poll())
+                self.assertIsNone(second.poll())
+                self.call("run", "--project", str(self.project), "--", "status")
+                self.call("project-upgrade", "--project", str(self.project), "--apply", success=False)
+
+    def test_first_pin_process_keeps_exclusive_runtime_lock(self):
+        (self.project / "runtime-lock.json").unlink()
+        with self.holding_runtime_process("ensure"):
+            self.call("ensure", "--project", str(self.project), success=False)
+            self.call("run", "--project", str(self.project), "--", "status", success=False)
+        self.assertFalse((self.project / "runtime-lock.json").exists())
+        self.call("ensure", "--project", str(self.project))
+        self.assertEqual(self.pin()["revision"], self.first)
 
     def test_known_legacy_fail_does_not_deadlock_upgrade(self):
         self.newer()
