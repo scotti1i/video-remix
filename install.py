@@ -9,8 +9,10 @@ import tempfile
 
 
 def install(destination):
-    source = Path(__file__).resolve().parent / "skills/video-remix"
+    source = Path(__file__).resolve().parent / "skills/sct-video-remix"
     destination = Path(destination).expanduser().resolve()
+    if destination.name == "video-remix":
+        destination = destination.with_name("sct-video-remix")
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists() and not (destination / ".video-remix-managed").exists():
         raise ValueError(f"目标已有非本安装器管理的 Skill，不覆盖：{destination}")
@@ -30,11 +32,35 @@ def install(destination):
         if backup:
             backup.rename(destination)
         raise
+    retire_legacy(destination)
     return destination
+
+
+def retire_legacy(destination):
+    if destination.name != "sct-video-remix":
+        return
+    legacy = destination.with_name("video-remix")
+    if not (legacy / "SKILL.md").is_file() or not (legacy / ".video-remix-managed").is_file():
+        return
+    # 旧 Skill 整目录可恢复；只留下启动器/指导兼容路径，不重复注册 Skill。
+    alias = Path(tempfile.mkdtemp(prefix=".video-remix-alias-", dir=destination.parent))
+    for folder, name in (("scripts", "bootstrap.py"), ("references", "workflow.md")):
+        (alias / folder).mkdir()
+        (alias / folder / name).symlink_to(Path("../../sct-video-remix") / folder / name)
+    backups = destination.parent / ".video-remix-backups"
+    backups.mkdir(exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+    backup = backups / (stamp + "-legacy")
+    legacy.rename(backup)
+    try:
+        alias.rename(legacy)
+    except Exception:
+        backup.rename(legacy)
+        raise
 
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--destination", default="~/.agents/skills/video-remix")
+    p.add_argument("--destination", default="~/.agents/skills/sct-video-remix")
     args = p.parse_args()
     print(install(args.destination))

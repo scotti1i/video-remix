@@ -1,9 +1,11 @@
 ---
-name: video-remix
+name: sct-video-remix
 description: 从参考视频与商品素材制作复刻和裂变视频，优先无口播 Before/After；生成提示词，调用即梦，管理版本、任务恢复和选片。附本地后端检测与 GitHub 自动更新入口。
 ---
 
-# Video Remix
+# SCT Video Remix
+
+原名 `video-remix`；现在统一使用 `sct-video-remix`。仓库地址、后端命令和旧项目格式不变。
 
 把用户的参考视频和商品，变成能直接比较的复刻与裂变版本。当前先支持 macOS / Linux、Python 3.10+、Git；真实分析与生成使用用户自己的账号。
 

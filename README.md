@@ -1,14 +1,16 @@
-# Video Remix
+# SCT Video Remix
+
+Skill 名称：`sct-video-remix`（原名 `video-remix`）。仓库地址和后端命令保持不变，旧项目无需迁移。
 
 **面向 AI 助手的视频复刻与裂变工具箱。**
 
 把参考视频和商品素材交给助手，得到可执行提示词、复刻/裂变版本、生成原片和对比结果。首版优先无口播的 Before / After 视频。Skill 负责内容判断，轻量后端负责执行和记录。
 
-当前为供小规模真实使用的 `0.2.0`。不提供零密钥演示；分析和生成使用用户自己的账号。自动更新、项目版本固定与任务管理已测试；新后端的视频生成适配器使用即梦现有 CLI，尚未用新的 Before/After 商品样本验收成片效果。
+当前为供小规模真实使用的 `0.2.1`。不提供零密钥演示；分析和生成使用用户自己的账号。自动更新、项目版本固定与任务管理已测试；新后端的视频生成适配器使用即梦现有 CLI，尚未用新的 Before/After 商品样本验收成片效果。
 
 ## 安装
 
-把本仓库链接发给你的 AI 助手，并说：**“帮我安装 video-remix Skill，检查环境，告诉我还缺什么配置。”** 手动安装包在本仓库 [Releases](https://github.com/scotti1i/video-remix/releases) 中。
+把本仓库链接发给你的 AI 助手，并说：**“帮我安装 sct-video-remix Skill，检查环境，告诉我还缺什么配置。”** 手动安装包在本仓库 [Releases](https://github.com/scotti1i/video-remix/releases) 中。
 
 需要 macOS 或 Linux、Python 3.10+ 和 Git。无需安装 Python 运行依赖。
 
@@ -18,18 +20,18 @@ cd video-remix
 python3 install.py
 ```
 
-默认安装到 `~/.agents/skills/video-remix`。支持 Agent Skills 的助手可从该目录发现；若你的客户端使用专用目录，可以指定：
+默认安装到 `~/.agents/skills/sct-video-remix`。已有安装器管理的旧名称目录会整体备份，只留下启动器兼容路径，不重复注册两个 Skill；非本工具管理的目录不动。若你的客户端使用专用目录，可以指定：
 
 ```sh
-python3 install.py --destination ~/.codex/skills/video-remix
-# 或：--destination ~/.claude/skills/video-remix
+python3 install.py --destination ~/.codex/skills/sct-video-remix
+# 或：--destination ~/.claude/skills/sct-video-remix
 ```
 
 然后在助手中说：
 
-> 使用 video-remix。参考这条视频，替换为我的商品，保留前后变化，生成一条复刻和三条有明确差异的裂变。先给我看提示词和费用，再按我的授权生成。
+> 使用 sct-video-remix。参考这条视频，替换为我的商品，保留前后变化，生成一条复刻和三条有明确差异的裂变。先给我看提示词和费用，再按我的授权生成。
 
-Skill 每次启动会检测本地后端并读取最新工作指导。即使只下载 `skills/video-remix/` 文件夹，它也能从 GitHub 安装缺失的后端。
+Skill 每次启动会检测本地后端并读取最新工作指导。即使只下载 `skills/sct-video-remix/` 文件夹，它也能从 GitHub 安装缺失的后端。
 
 ## 真实调用需要什么
 
@@ -47,13 +49,13 @@ Skill 每次启动会检测本地后端并读取最新工作指导。即使只�
 
 ## 更新：新项目用新版，老项目保持原版
 
-稳定启动器：`skills/video-remix/scripts/bootstrap.py`。
+稳定启动器：`skills/sct-video-remix/scripts/bootstrap.py`。旧版 `skills/video-remix/` 中保留脚本和指导的兼容链接，供已安装的旧启动器识别新后端。
 
 ```sh
-python3 skills/video-remix/scripts/bootstrap.py ensure
-python3 skills/video-remix/scripts/bootstrap.py check
-python3 skills/video-remix/scripts/bootstrap.py update
-python3 skills/video-remix/scripts/bootstrap.py rollback
+python3 skills/sct-video-remix/scripts/bootstrap.py ensure
+python3 skills/sct-video-remix/scripts/bootstrap.py check
+python3 skills/sct-video-remix/scripts/bootstrap.py update
+python3 skills/sct-video-remix/scripts/bootstrap.py rollback
 ```
 
 - 默认信任本仓库 `main`。下载到新版本目录、核对 Git 状态并启动后端检查，然后原子切换指针。
@@ -68,11 +70,11 @@ python3 skills/video-remix/scripts/bootstrap.py rollback
 通过托管 Skill 新建项目时，`runtime-lock.json` 记录可信仓库和完整 Git 提交。继续旧项目时自动使用该版本；即使默认后端已更新也不跟着切换。项目搬家或本地旧代码丢失时，从可信仓库恢复**同一提交**；离线缺版本时明确停下，不擅自换新版。
 
 ```sh
-python3 skills/video-remix/scripts/bootstrap.py ensure --project /path/to/project
-python3 skills/video-remix/scripts/bootstrap.py run --project /path/to/project -- status
-python3 skills/video-remix/scripts/bootstrap.py project-upgrade --project /path/to/project
+python3 skills/sct-video-remix/scripts/bootstrap.py ensure --project /path/to/project
+python3 skills/sct-video-remix/scripts/bootstrap.py run --project /path/to/project -- status
+python3 skills/sct-video-remix/scripts/bootstrap.py project-upgrade --project /path/to/project
 # 检查确认后显式升级：
-python3 skills/video-remix/scripts/bootstrap.py project-upgrade --project /path/to/project --apply
+python3 skills/sct-video-remix/scripts/bootstrap.py project-upgrade --project /path/to/project --apply
 ```
 
 项目升级先阻止运行中或状态不明的生成任务，再做本地只读兼容检查；通过后备份项目配置和任务记录，最后切换版本锁。检查或备份失败保持旧锁，媒体不改动。**当前只支持兼容格式升级，不会自动转换不兼容的数据。** 检查验证可读格式与规格，不代表新平台接口和成片效果已验证；也不能保证外部模型、CLI、Python 或 GitHub 永久可用。保留 Git 提交历史和已发布版本，不强推删除旧代码。
@@ -103,7 +105,7 @@ my-product/
 
 通过 `replica / variation / rerun` 区分复刻、设计裂变和同条件重生成。已有版本不覆盖，新增版本关联父版本。
 
-完整命令和版本 JSON 字段见 [工作指导](skills/video-remix/references/workflow.md)。根目录运行 `python3 -m video_remix --help` 查看入口。
+完整命令和版本 JSON 字段见 [工作指导](skills/sct-video-remix/references/workflow.md)。根目录运行 `python3 -m video_remix --help` 查看入口。
 
 `run` 默认输出执行预览，加 `--execute` 才真实提交。`--wait 30` 等待最多约 30 秒的轮询窗口（单次平台请求可能更长）；重复执行同一版本只恢复原任务，不会重新生成。
 
