@@ -53,3 +53,43 @@
 若跳删/变速，`provenance.source_to_output` 可逐段记录源区间与输出区间，供验收定位；它是制作决策的证据，不是视频模型精确时序保证，不要求简单任务补映射表。
 
 `kind=variation` 需要已存在的 `parent` 和 `change`；`rerun` 从父版冻结的 `variants/<id>/spec.json` 复制，只改新 ID、kind、parent 和记录说明，不从制作摘要重写 prompt。新登记会核对提供方、模型、时长、比例、分辨率、有序 inputs 与完整 prompt 相同；改条件用 variation。旧 `variant` JSON 继续有效，新增计划不改变旧 v1 项目语义。保留的 `plans/<id>/plan.json` 和 `spec.json` 是可审查的交接快照。
+
+## 只换场景、人物或穿搭
+
+用户要保留参考核心机制、只换上述元素时，用 `vary /absolute/controls.json`。它从项目中已编译的父计划派生，不调用模型、不重写声音或分镜，也不提交视频生成。控制文件使用独立格式，旧计划和规格无需迁移：
+
+```json
+{
+  "format": "video-remix-variation.v1",
+  "id": "terrace-01",
+  "parent": "replica-01",
+  "frozen_core": {
+    "mechanism": "保留连续热情推荐、手持细节到上脚揭晓、俯拍走动的表达机制。",
+    "product_assets": ["product"]
+  },
+  "slots": {
+    "scene": {
+      "text": [
+        {"path": "look", "from": "dark asphalt", "to": "wooden terrace"},
+        {"path": "shots.0.action", "from": "dark asphalt", "to": "wooden terrace"}
+      ],
+      "images": [{"from": "anchor", "to": "terrace-anchor"}]
+    },
+    "outfit": {
+      "text": [{"path": "look", "from": "black leggings", "to": "blue jeans"}]
+    }
+  }
+}
+```
+
+示例短语必须换成父计划中实际存在的原文；新垫图先登记为 `terrace-anchor` 素材。`person` 与 `scene/outfit` 的结构相同。只填写本次需要改变的插槽，各插槽可包含 `text`、`images` 或二者；未填项保持父版原样，不自动补图。
+
+替换规则：
+
+- `text.path` 仅允许 `look`、`constraints`、`shots.<从0起的序号>.action/camera`。`from` 是完整的字面短语，须在指定父字段中恰好出现一次；重复时写更长的原短语。所有替换同时基于父原文执行，不使用正则、不连锁替换、不跨字段搜索；重叠或未匹配即报错。
+- `images` 显式替换父版一个图片输入的素材 ID；数量、类型、顺序、role 全部保留。父版重复使用同一图片 ID 时，此简化入口拒绝含糊替换。不能增删输入或替换视频/音频。新素材必须已登记，商品真源 `frozen_core.product_assets` 禁止替换。
+- `frozen_core.mechanism` 保存本次必须保留的核心机制供对照，不重复插入 prompt。提供方、模型、时长、画幅、分辨率、输入模式、`intent/product/sound`、每镜起止时间和 `delivery/sync` 以及来源映射都直接继承。不能往控制文件添加这些覆盖字段；确需改声音或节拍时，另写明确的组合变化计划。
+
+返回新计划/规格及 `plans/<新ID>/variation.json`、`diff.json`。差异列出每个变化字段的前后原文和父计划哈希；父版保持原样。父计划须与其冻结规格一致，只有旧规格而没有计划时，不从 prompt 自动猜回结构。
+
+提交前检查完整差异及新旧素材是否冲突：例如原垫图仍带旧服装、台词仍提黑裤子，就不能声称仅改视觉描述已经协调完成。软件冻结的是字段和替换范围；插槽文字仍可能在语义上改变动作/拍摄效果，新图片也可能带入其他变化，因此不能把 diff 通过当作模型效果或声画节奏已经保真的证据。

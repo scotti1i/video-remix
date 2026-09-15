@@ -12,9 +12,11 @@ from .analysis import analyze
 from .compatibility import inspect
 from .creative import compile_plan
 from .dreamina import Dreamina
+from .performance_assessment import assess_performance
 from .project import add_asset, add_variant, compare, initialize, status
 from .runner import attach, execute, revision
 from .sound_assessment import assess
+from .variation import vary
 from .storage import atomic, locked, now, project_at, read, slug
 
 
@@ -57,16 +59,18 @@ def parser():
     analysis.add_argument("--model", default=os.environ.get("GEMINI_MODEL"))
     analysis.add_argument("--brief", required=True)
     analysis.add_argument("--refresh", action="store_true", help="显式重新调用参考分析")
-    assessment = sub.add_parser("assess", help="声音专项辅助评审；真实对比参考与原片，不作人工验收")
+    assessment = sub.add_parser("assess", help="对照参考与原片，专项声音或完整声画；不作人工验收")
     assessment.add_argument("variant")
     assessment.add_argument("--reference", required=True)
-    assessment.add_argument("--focus", required=True, choices=("sound",))
-    assessment.add_argument("--brief", required=True, help="具体说明本次声音要保留或改变什么")
+    assessment.add_argument("--focus", required=True, choices=("sound", "performance"))
+    assessment.add_argument("--brief", required=True, help="具体说明核心保留项与允许变化项")
     assessment.add_argument("--model", default=os.environ.get("GEMINI_MODEL"))
     variant = sub.add_parser("variant", help="登记助手编写的版本规格 JSON")
     variant.add_argument("file")
     plan = sub.add_parser("compile", help="将制作计划原文装配并登记版本，不生成")
     plan.add_argument("file")
+    variation = sub.add_parser("vary", help="按场景/人物/穿搭控制文件派生计划和差异，不生成")
+    variation.add_argument("file")
     run = sub.add_parser("run", help="默认预览；--execute 才提交/恢复任务")
     run.add_argument("ids", nargs="+")
     run.add_argument("--execute", action="store_true")
@@ -100,9 +104,12 @@ def dispatch(a):
     handlers = {
         "asset": lambda: add_asset(root, a.id, a.file, a.role),
         "analyze": lambda: analyze(root, a.asset, a.model, a.brief, refresh=a.refresh),
-        "assess": lambda: assess(root, a.variant, a.reference, a.focus, a.brief, a.model),
+        "assess": lambda: (assess_performance(root, a.variant, a.reference, a.brief, a.model)
+                           if a.focus == "performance" else
+                           assess(root, a.variant, a.reference, a.focus, a.brief, a.model)),
         "variant": lambda: add_variant(root, a.file),
         "compile": lambda: compile_plan(root, a.file),
+        "vary": lambda: vary(root, a.file),
         "run": lambda: execute(root, a.ids, a.budget, a.estimate_per_job, a.execute, a.wait),
         "attach": lambda: attach(root, a.variant, a.task_id),
         "status": lambda: status(root), "compare": lambda: compare(root),

@@ -70,7 +70,11 @@ def assemble(plan):
 
 
 def compile_plan(root, file):
-    plan = read(file)
+    return store_plan(root, read(file))
+
+
+def store_plan(root, plan, artifacts=None):
+    # 编译和受控裂变共用同一保存入口；额外证据不进入生成规格。
     spec = assemble(plan)
     validate_spec(spec, root)
     validate_rerun(spec, root)
@@ -80,6 +84,8 @@ def compile_plan(root, file):
     target.mkdir(parents=True)
     atomic(target / "plan.json", plan)
     atomic(target / "spec.json", spec)
+    for name, data in (artifacts or {}).items():
+        atomic(target / name, data)
     result = add_variant(root, target / "spec.json")
     return {**result, "plan": str(target / "plan.json"),
             "note": "原文装配，无二次改写；未提交生成"}
