@@ -52,4 +52,4 @@
 
 若跳删/变速，`provenance.source_to_output` 可逐段记录源区间与输出区间，供验收定位；它是制作决策的证据，不是视频模型精确时序保证，不要求简单任务补映射表。
 
-`kind=variation` 需要已存在的 `parent` 和 `change`；`rerun` 保持同条件并引用父版本。旧 `variant` JSON 继续有效，新增计划不改变旧 v1 项目语义。保留的 `plans/<id>/plan.json` 和 `spec.json` 是可审查的交接快照。
+`kind=variation` 需要已存在的 `parent` 和 `change`；`rerun` 从父版冻结的 `variants/<id>/spec.json` 复制，只改新 ID、kind、parent 和记录说明，不从制作摘要重写 prompt。新登记会核对提供方、模型、时长、比例、分辨率、有序 inputs 与完整 prompt 相同；改条件用 variation。旧 `variant` JSON 继续有效，新增计划不改变旧 v1 项目语义。保留的 `plans/<id>/plan.json` 和 `spec.json` 是可审查的交接快照。
