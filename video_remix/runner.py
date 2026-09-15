@@ -7,7 +7,7 @@ import subprocess
 import time
 
 from . import __version__
-from .dreamina import Dreamina, unpack
+from .dreamina import Dreamina, TERMINAL_FAILURES, failure_details, queue_snapshot, unpack
 from .project import validate_spec
 from .storage import atomic, digest, locked, now, read, slug
 
@@ -80,6 +80,11 @@ def execute_items(root, items, provider, budget, estimate, wait):
     for directory, spec, assets, run, args in items:
         if run and run["phase"] == "submit_intent":
             raise ValueError("上次提交结果不明；核对平台后用 attach 绑定原任务 ID，禁止重交")
+        if run and str(run.get("provider_status", "")).strip().lower() in TERMINAL_FAILURES:
+            # 兼容旧记录把 fail 留成 polling 的情况；已知终止的任务不再空查。
+            if run["phase"] != "failed":
+                run.update(phase="failed", **failure_details({"gen_status": run["provider_status"]}))
+                atomic(directory / "run.json", run)
         if run is None:
             if existing + spent + estimate > budget or spent + estimate > credit:
                 return {"stop": "budget", "new_credits": spent, "results": results}
@@ -93,8 +98,10 @@ def execute_items(root, items, provider, budget, estimate, wait):
         if run["phase"] not in ("downloaded", "failed"):
             run = poll(directory, run, provider, wait)
         results.append(run)
-        if run["phase"] == "failed":
-            break
+        if run["phase"] != "downloaded":
+            # wait 结束只代表本次等待结束；前一单未成功落盘时不提交下一单。
+            return {"stop": "failed" if run["phase"] == "failed" else "pending",
+                    "new_credits": spent, "results": results}
     return {"new_credits": spent, "results": results}
 
 
@@ -125,12 +132,12 @@ def poll(directory, run, provider, wait):
     deadline = time.monotonic() + max(0, wait)
     while True:
         payload = unpack(provider.query(run["task_id"]))
-        status = str(payload.get("gen_status", "unknown")).lower()
-        run.update(provider_status=status, checked_at=now())
+        status = str(payload.get("gen_status", "unknown")).strip().lower()
+        run.update(provider_status=status, checked_at=now(), queue_info=queue_snapshot(payload))
         if payload.get("credit_count") is not None:
             run["credits"] = payload["credit_count"]
-        if status in ("failed", "failure", "error", "cancelled", "canceled"):
-            run["phase"] = "failed"
+        if status in TERMINAL_FAILURES:
+            run.update(phase="failed", **failure_details(payload))
         else:
             run["phase"] = "download_pending" if status == "success" else "polling"
         atomic(directory / "run.json", run)

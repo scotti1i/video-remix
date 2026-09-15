@@ -10,6 +10,7 @@ import sys
 from . import __version__
 from .analysis import analyze
 from .compatibility import inspect
+from .creative import compile_plan
 from .dreamina import Dreamina
 from .project import add_asset, add_variant, compare, initialize, status
 from .runner import attach, execute, revision
@@ -56,6 +57,8 @@ def parser():
     analysis.add_argument("--brief", required=True)
     variant = sub.add_parser("variant", help="登记助手编写的版本规格 JSON")
     variant.add_argument("file")
+    plan = sub.add_parser("compile", help="将制作计划原文装配并登记版本，不生成")
+    plan.add_argument("file")
     run = sub.add_parser("run", help="默认预览；--execute 才提交/恢复任务")
     run.add_argument("ids", nargs="+")
     run.add_argument("--execute", action="store_true")
@@ -90,6 +93,7 @@ def dispatch(a):
         "asset": lambda: add_asset(root, a.id, a.file, a.role),
         "analyze": lambda: analyze(root, a.asset, a.model, a.brief),
         "variant": lambda: add_variant(root, a.file),
+        "compile": lambda: compile_plan(root, a.file),
         "run": lambda: execute(root, a.ids, a.budget, a.estimate_per_job, a.execute, a.wait),
         "attach": lambda: attach(root, a.variant, a.task_id),
         "status": lambda: status(root), "compare": lambda: compare(root),

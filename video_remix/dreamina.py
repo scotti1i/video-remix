@@ -2,11 +2,48 @@
 
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 from collections import Counter
 
 from .project import asset_path
+
+
+TERMINAL_FAILURES = frozenset(("fail", "failed", "failure", "error", "cancelled", "canceled"))
+
+
+def failure_details(payload):
+    # 只保存已知错误的分类和固定文案，避免平台原文夹带 token、签名 URL 或 prompt。
+    reason = str(payload.get("fail_reason", ""))
+    status = str(payload.get("gen_status", "")).strip().lower()
+    signatures = (("exceedconcurrencylimit", "concurrency_limit", "平台并发任务数已达上限"),
+                  ("generation failed", "generation_failed", "平台视频生成失败"))
+    details = {"error_class": "provider_failure", "error_reason": "平台返回终止失败，未提供可安全保留的详细原因"}
+    for signature, category, message in signatures:
+        if signature in reason.lower():
+            details = {"error_class": category, "error_reason": message}
+            break
+    if status in ("cancelled", "canceled"):
+        details = {"error_class": "cancelled", "error_reason": "平台任务已取消"}
+    code = re.search(r"\bret=(-?\d{1,10})\b", reason)
+    if code:
+        details["provider_error_code"] = int(code.group(1))
+    return details
+
+
+def queue_snapshot(payload):
+    # 保留真实排队/生成状态，过滤 debug_info 和其他可能包含内部鉴权信息的字段。
+    queue = payload.get("queue_info")
+    if not isinstance(queue, dict):
+        return None
+    statuses = {"queueing": "Queueing", "queuing": "Queuing", "generating": "Generating", "finish": "Finish"}
+    result = {"queue_status": statuses.get(str(queue.get("queue_status", "")).lower(), "Unknown")}
+    for key in ("queue_idx", "queue_length", "priority"):
+        value = queue.get(key)
+        if type(value) is int and value >= 0:
+            result[key] = value
+    return result
 
 
 def command(args, timeout=120):

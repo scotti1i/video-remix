@@ -17,6 +17,8 @@ class FakeDreamina:
         self.fail_download = fail_download
         self.submissions = []
         self.queries = []
+        self.query_status = "success"
+        self.query_extra = {}
 
     def account(self):
         return {"credits": 500}
@@ -35,8 +37,8 @@ class FakeDreamina:
 
     def query(self, task_id):
         self.queries.append(task_id)
-        return {"submit_id": task_id, "gen_status": "success", "credit_count": self.price,
-                "prompt": 'literal $HOME `echo test`\nKeep this newline.\n'}
+        return {"submit_id": task_id, "gen_status": self.query_status, "credit_count": self.price,
+                "prompt": 'literal $HOME `echo test`\nKeep this newline.\n', **self.query_extra}
 
     def download(self, task_id, directory):
         if self.fail_download:
@@ -135,6 +137,83 @@ class RunnerTests(unittest.TestCase):
         self.run_job(["replica", "variation"], budget=42, provider=provider)
         self.run_job(["replica", "variation"], budget=42, provider=provider)
         self.assertEqual(len(provider.submissions), 1)
+
+    def test_batch_waits_for_download_before_submitting_next(self):
+        self.add("variation", kind="variation", parent="replica", change="场景")
+        provider = FakeDreamina()
+        provider.query_status = "querying"
+        provider.query_extra = {"queue_info": {"queue_status": "Queueing", "queue_idx": 59446,
+                                               "queue_length": 544491, "debug_info": "private"}}
+        ids = ["replica", "variation"]
+        first = self.run_job(ids, provider=provider)
+        self.assertEqual(first["stop"], "pending")
+        self.run_job(ids, provider=provider)
+        self.assertEqual(len(provider.submissions), 1)
+        self.assertEqual(provider.queries, ["task-1", "task-1"])
+        self.assertFalse((self.root / "variants/variation/run.json").exists())
+        record = read(self.root / "variants/replica/run.json")
+        self.assertEqual(record["queue_info"]["queue_status"], "Queueing")
+        self.assertNotIn("debug_info", record["queue_info"])
+        provider.query_status, provider.query_extra = "success", {}
+        self.run_job(ids, provider=provider)
+        self.assertEqual(len(provider.submissions), 2)
+        self.assertEqual(provider.queries[-2:], ["task-1", "task-2"])
+        self.assertEqual(read(self.root / "variants/replica/run.json")["phase"], "downloaded")
+        self.assertEqual(read(self.root / "variants/variation/run.json")["phase"], "downloaded")
+
+    def test_platform_fail_stops_batch_and_never_requeries(self):
+        self.add("variation", kind="variation", parent="replica", change="场景")
+        provider = FakeDreamina()
+        provider.query_status = "fail"
+        provider.query_extra = {"fail_reason": "api error: ret=1310, message=ExceedConcurrencyLimit token=secret"}
+        with patch("video_remix.runner.time.sleep") as sleep:
+            result = execute(self.root, ["replica", "variation"], 100, 42,
+                             execute=True, wait=30, provider=provider)
+        self.assertEqual(result["stop"], "failed")
+        sleep.assert_not_called()
+        self.run_job(["replica", "variation"], provider=provider)
+        self.assertEqual(len(provider.submissions), 1)
+        self.assertEqual(provider.queries, ["task-1"])
+        record = read(self.root / "variants/replica/run.json")
+        self.assertEqual(record["phase"], "failed")
+        self.assertEqual(record["error_class"], "concurrency_limit")
+        self.assertEqual(record["provider_error_code"], 1310)
+        self.assertNotIn("secret", json.dumps(record))
+
+    def test_old_polling_fail_record_is_terminal_without_network_query(self):
+        provider = FakeDreamina()
+        provider.query_status = "querying"
+        self.run_job(provider=provider)
+        path = self.root / "variants/replica/run.json"
+        record = read(path)
+        record["provider_status"] = "fail"
+        atomic(path, record)
+        self.assertEqual(self.run_job(provider=provider)["stop"], "failed")
+        self.assertEqual(provider.queries, ["task-1"])
+        self.assertEqual(read(path)["phase"], "failed")
+
+    def test_queue_snapshot_tracks_generating_and_clears_missing_data(self):
+        provider = FakeDreamina()
+        provider.query_status = "querying"
+        provider.query_extra = {"queue_info": {"queue_status": "Generating", "queue_idx": 0}}
+        self.run_job(provider=provider)
+        path = self.root / "variants/replica/run.json"
+        self.assertEqual(read(path)["queue_info"]["queue_status"], "Generating")
+        provider.query_extra = {}
+        self.run_job(provider=provider)
+        self.assertIsNone(read(path)["queue_info"])
+
+    def test_query_connection_loss_does_not_resubmit_or_advance_batch(self):
+        self.add("variation", kind="variation", parent="replica", change="场景")
+        provider = FakeDreamina()
+        with patch.object(provider, "query", side_effect=TimeoutError("network lost")):
+            with self.assertRaises(TimeoutError):
+                self.run_job(["replica", "variation"], provider=provider)
+        self.assertEqual(len(provider.submissions), 1)
+        self.assertEqual(read(self.root / "variants/replica/run.json")["task_id"], "task-1")
+        self.run_job(["replica", "variation"], provider=provider)
+        self.assertEqual(len(provider.submissions), 2)
+        self.assertEqual(provider.queries, ["task-1", "task-2"])
 
     def test_all_specs_checked_before_first_submit(self):
         provider = FakeDreamina()

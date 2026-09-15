@@ -49,8 +49,15 @@ def analyze(root, asset_id, model, brief):
 
 def request(directory, base, model, key, body, run):
     endpoint = f"{base}/v1beta/models/{model}:generateContent"
+    mode = os.environ.get("GEMINI_AUTH_MODE", "google")
+    if mode not in ("google", "bearer"):
+        raise ValueError("GEMINI_AUTH_MODE 必须是 google 或 bearer")
+    headers = {"Content-Type": "application/json"}
+    headers.update({"Authorization": f"Bearer {key}"} if mode == "bearer"
+                   else {"x-goog-api-key": key})
+    run["auth_mode"] = mode
     req = urllib.request.Request(endpoint, json.dumps(body).encode(),
-                                 {"x-goog-api-key": key, "Content-Type": "application/json"})
+                                 headers)
     try:
         try:
             with urllib.request.urlopen(req, timeout=180) as response:

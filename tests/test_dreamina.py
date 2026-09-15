@@ -3,10 +3,29 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from video_remix.dreamina import Dreamina, validate_capabilities
+from video_remix.dreamina import Dreamina, failure_details, queue_snapshot, validate_capabilities
 
 
 class DreaminaTests(unittest.TestCase):
+    def test_failure_details_use_safe_classification_not_provider_text(self):
+        details = failure_details({"gen_status": "fail", "fail_reason":
+                                   "generation failed: final generation failed https://host/?token=secret"})
+        self.assertEqual(details["error_class"], "generation_failed")
+        self.assertNotIn("secret", str(details))
+        self.assertNotIn("https", str(details))
+        unknown = failure_details({"gen_status": "fail", "fail_reason": "Authorization: Bearer credential"})
+        self.assertEqual(unknown["error_class"], "provider_failure")
+        self.assertNotIn("credential", str(unknown))
+        self.assertEqual(failure_details({"gen_status": "cancelled"})["error_class"], "cancelled")
+
+    def test_queue_fields_are_typed_and_allowlisted(self):
+        self.assertIsNone(queue_snapshot({"queue_info": "bad shape"}))
+        snapshot = queue_snapshot({"queue_info": {"queue_status": "Queueing", "queue_idx": 42,
+                                    "queue_length": 100, "priority": True, "debug_info": "secret"}})
+        self.assertEqual(snapshot, {"queue_status": "Queueing", "queue_idx": 42, "queue_length": 100})
+        self.assertEqual(queue_snapshot({"queue_info": {"queue_status": "Bearer secret"}}),
+                         {"queue_status": "Unknown"})
+
     def test_argv_keeps_prompt_bytes_and_input_order(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()

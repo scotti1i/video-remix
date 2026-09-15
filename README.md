@@ -4,9 +4,9 @@ Skill 名称：`sct-video-remix`（原名 `video-remix`）。仓库地址和后�
 
 **面向 AI 助手的视频复刻与裂变工具箱。**
 
-把参考视频和商品素材交给助手，得到可执行提示词、复刻/裂变版本、生成原片和对比结果。首版优先无口播的 Before / After 视频。Skill 负责内容判断，轻量后端负责执行和记录。
+把参考视频和商品素材交给助手，得到声画分析、商品/画面参考、可执行制作计划、复刻/裂变版本、生成原片和对比结果。支持无口播 Before/After、产品展示和有声 UGC。Skill 负责内容判断，轻量后端负责无改写装配、执行和记录。
 
-当前为供小规模真实使用的 `0.2.1`。不提供零密钥演示；分析和生成使用用户自己的账号。自动更新、项目版本固定与任务管理已测试；新后端的视频生成适配器使用即梦现有 CLI，尚未用新的 Before/After 商品样本验收成片效果。
+当前版本 `0.3.0`。不提供零密钥演示；分析和生成使用用户自己的账号。流程依据人物 UGC 与鞋类真实实验改进，**不保证任意商品一次成功，也未证明批量成功率**。Gemini 分析、内置垫图生成与即梦原视频产物是不同节点，人工看效果不被软件测试或机器评分替代。
 
 ## 安装
 
@@ -37,7 +37,7 @@ Skill 每次启动会检测本地后端并读取最新工作指导。即使只�
 
 | 能力 | 依赖 |
 |---|---|
-| 参考分析 | `GEMINI_API_KEY` + `GEMINI_MODEL`；默认 Google 原生接口，可用 `GEMINI_BASE_URL` 指向兼容网关根地址 |
+| 参考分析 | `GEMINI_API_KEY` + `GEMINI_MODEL`；默认 Google 原生接口，可用 `GEMINI_BASE_URL` 指向兼容网关根地址，`GEMINI_AUTH_MODE=bearer` 支持用户选定的 API Mart 等 Bearer 网关 |
 | 视频生成 | 从即梦官方渠道安装 `dreamina` CLI，运行 `dreamina login`，账号有相应模型权限和积分 |
 | 下载验证 | `ffprobe`，一般随 FFmpeg 安装 |
 | TikTok 链接获取 | 本机 `yt-dlp`；无法获取时可直接提供本地视频 |
@@ -96,6 +96,7 @@ my-product/
   .runtime-backups/     主动升级前的配置与记录备份
   assets/               输入文件与 SHA-256
   analysis/             Gemini 原始返回、分析、调用记录
+  plans/<id>/           制作计划与原文装配的生成规格
   variants/<id>/
     spec.json           提示词、模型、输入、裂变父版本和改变项
     run.json            提交 ID、状态、费用、后端版本、人工选择
@@ -108,6 +109,10 @@ my-product/
 完整命令和版本 JSON 字段见 [工作指导](skills/sct-video-remix/references/workflow.md)。根目录运行 `python3 -m video_remix --help` 查看入口。
 
 `run` 默认输出执行预览，加 `--execute` 才真实提交。`--wait 30` 等待最多约 30 秒的轮询窗口（单次平台请求可能更长）；重复执行同一版本只恢复原任务，不会重新生成。
+
+0.3.0 的 `compile /absolute/plan.json` 将一份声画制作计划直接装配、登记为生成规格，不调用模型改写。计划显式区分 `image_text`（仅图文）、`image_audio`（图＋音频）、`video_reference`（含视频），防止把混入参考的实验称为纯文字能力。字段见 [计划合同](skills/sct-video-remix/references/plan-contract.md)，创作方法见 [制作指导](skills/sct-video-remix/references/production.md)。直接 `variant` 老规格继续兼容。
+
+同批生成默认串行；上一条尚未下载时返回 `stop=pending`，恢复同一批继续。状态保留真实队列字段；`fail` 正确视为终止失败，未知状态不伪称“生成中”。
 
 预算按本次选定版本的累计费用控制后续提交，无法强制平台限制单条实际扣费。超过单条预估就停止后续提交。提交结果不明时停在 `submit_intent`，核对平台后用 `attach` 绑定原任务。
 

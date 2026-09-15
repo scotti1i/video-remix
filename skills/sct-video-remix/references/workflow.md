@@ -16,6 +16,8 @@ Skill 已更名为 `sct-video-remix`。安装器接受旧目录名称并迁移�
 
 ## 1. 项目与参考
 
+开始制作、复刻或裂变时完整读取 [制作方法](../../sct-video-remix/references/production.md)。使用 `compile` 时读取 [制作计划合同](../../sct-video-remix/references/plan-contract.md)。链接兼容新旧 Skill 路径。故障查询和单纯下载不必重新分析素材。当前工作指导与后端为 0.3.0；旧项目升级前继续遵守其固定版。
+
 ```sh
 init <用户项目目录> --name "商品前后对比"
 --project <目录> asset ref <本地参考.mp4> --role "前后变化与转场参考"
@@ -27,10 +29,10 @@ init <用户项目目录> --name "商品前后对比"
 Gemini 分析真实调用：
 
 ```sh
---project <目录> analyze ref --model <账户支持的模型名> --brief "分析无口播 Before/After；提取前态、后态、变化过程、揭晓点和转场"
+--project <目录> analyze ref --model <账户支持的模型名> --brief "先判断视频类型及有无人声；提取实际镜头、声画节拍、动作因果、光线与需要保留的表达机制；区分观察与推断"
 ```
 
-密钥通过 `GEMINI_API_KEY` 注入；`GEMINI_BASE_URL` 可指定 Google-compatible 网关根地址，默认 Google 官方。`GEMINI_MODEL` 可替代 --model。不要把 key 写进命令文本、版本 JSON 或笔记。原始响应和分析文本均落项目目录。
+密钥通过 `GEMINI_API_KEY` 注入；`GEMINI_BASE_URL` 可指定 Google-compatible 网关根地址，默认 Google 官方。`GEMINI_AUTH_MODE=google` 默认使用 x-goog-api-key；用户选择 API Mart 等 Bearer 网关时设 `GEMINI_AUTH_MODE=bearer`（不是自动切供应商）。`GEMINI_MODEL` 可替代 --model。不要把 key 写进命令文本、版本 JSON 或笔记。原始响应和分析文本均落项目目录。按素材哈希、区间和分析目的复用已有分析；已有分析缺关键维度时只补这一维，不每步重新上传视频。
 
 ## 2. 生成提示词和裂变
 
@@ -42,7 +44,9 @@ Gemini 分析真实调用：
 
 需要垫图时使用宿主已可用的生图能力；保存真实结果，再登记为 image 素材。不要求额外人物、场景或九宫格，除非这条镜头确实需要。
 
-每个版本写一个 JSON，再用 `variant <绝对路径.json>` 登记。字段合同：
+完整制作建议先写一份 `video-remix-plan.v1`，再执行 `compile <绝对路径.json>`：原文装配输入角色、外观、声画描述和实际镜头，保存计划快照并登记版本，**不做二次改写、不提交生成**。计划格式见 [制作计划合同](../../sct-video-remix/references/plan-contract.md)。老的直接 `variant` 路径仍兼容，可用于已有成型 prompt，不强制给简单任务补文书。
+
+直接版本字段合同：
 
 ```json
 {
@@ -75,6 +79,8 @@ Gemini 分析真实调用：
 首条打印真实输入和提示词，不提交。执行参数由用户已授权的版本和预算确定。历史预估不是实时价格；平台回报超过预估就停后续提交。预算覆盖本命令列出的全部版本，恢复时已发生费用也计入；无法取消已经发生的超预估扣费。
 
 等待结束仍在生成时，重复同一条 run 命令恢复；有任务 ID 就不会重交。模型失败后如需再生成，登记新的 rerun 版本，费用独立计数。
+
+同批任务默认串行：上一条未完成下载时返回 `stop=pending`，不抢先下后一单；恢复同一批即可继续。平台 `fail` 也是终止失败，不是仍在生成。查看 `queue_info.queue_status` 区分 Queueing 与 Generating，没有字段就说未知，不凭 querying 猜测。已知失败保存安全错误分类，不盲目切模型/新建重试；用户授权的补测才新建版本。
 
 若标记 submit_intent（结果不明），先从平台查到原任务，使用 `attach <版本ID> <任务ID>`；它会核对任务 ID 和完整提示词再绑定。查不到时停下，请用户核实，不自动重交。
 

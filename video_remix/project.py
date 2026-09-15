@@ -106,6 +106,10 @@ def status(root):
         variants.append({"id": spec["id"], "kind": spec["kind"], "change": spec.get("change", ""),
                          "phase": run.get("phase", "prepared"), "task_id": run.get("task_id"),
                          "credits": run.get("credits"), "output": run.get("output"),
+                         "provider_status": run.get("provider_status"),
+                         "queue_info": run.get("queue_info"),
+                         "error_class": run.get("error_class"),
+                         "error_reason": run.get("error_reason"),
                          "review": run.get("review", {})})
     return {"project": str(root), "variants": variants}
 

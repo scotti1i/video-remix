@@ -11,6 +11,20 @@ from video_remix.storage import read
 
 
 class AnalysisTests(unittest.TestCase):
+    def test_bearer_gateway_header_and_no_secret_in_run(self):
+        payload = {"candidates": [{"content": {"parts": [{"text": "observations"}]}}]}
+        class Response(io.BytesIO):
+            status = 200
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            with patch.dict("os.environ", {"GEMINI_AUTH_MODE": "bearer"}), patch(
+                    "urllib.request.urlopen", return_value=Response(json.dumps(payload).encode())) as fetch:
+                request(path, "https://example.invalid", "gemini-test", "test-secret", {}, {})
+            headers = dict(fetch.call_args.args[0].header_items())
+            self.assertEqual(headers["Authorization"], "Bearer test-secret")
+            self.assertNotIn("X-goog-api-key", headers)
+            self.assertNotIn("test-secret", (path / "run.json").read_text())
+
     def test_http_error_keeps_raw_and_failed_run(self):
         raw = b'{"error":"quota exceeded"}'
         error = urllib.error.HTTPError("https://example.invalid", 429, "quota", {}, io.BytesIO(raw))
