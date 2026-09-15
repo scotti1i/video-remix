@@ -2,7 +2,7 @@
 
 from collections import Counter
 
-from .project import add_variant, validate_spec
+from .project import add_variant, validate_rerun, validate_spec
 from .storage import atomic, read, slug
 
 
@@ -73,6 +73,7 @@ def compile_plan(root, file):
     plan = read(file)
     spec = assemble(plan)
     validate_spec(spec, root)
+    validate_rerun(spec, root)
     target = root / "plans" / spec["id"]
     if target.exists() or (root / "variants" / spec["id"]).exists():
         raise ValueError("计划或版本已存在，请使用新 ID")

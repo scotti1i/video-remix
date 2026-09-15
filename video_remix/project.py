@@ -91,11 +91,23 @@ def add_variant(root, file):
     spec = read(file)
     with locked(root / ".project.lock"):
         validate_spec(spec, root)
+        validate_rerun(spec, root)
         target = root / "variants" / spec["id"] / "spec.json"
         if target.exists():
             raise ValueError("版本已存在，请新增版本 ID")
         atomic(target, spec)
     return {"variant": spec["id"], "spec": str(target)}
+
+
+def validate_rerun(spec, root):
+    # 只校验新登记，历史规格与任务按原记录恢复。
+    if spec["kind"] != "rerun":
+        return
+    parent = read(root / "variants" / spec["parent"] / "spec.json")
+    fields = ("provider", "model", "duration", "ratio", "resolution", "inputs", "prompt")
+    changed = [field for field in fields if spec.get(field) != parent.get(field)]
+    if changed:
+        raise ValueError("rerun 必须保持父版生成条件；有改动请用 variation：" + ", ".join(changed))
 
 
 def status(root):

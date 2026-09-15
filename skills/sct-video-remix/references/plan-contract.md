@@ -48,6 +48,8 @@
 
 `shots` 用输出时间，`provenance.source_interval` 用原片时间。允许一镜连续变化或多镜，不强制三拍；镜头有序、不重叠、不超输出时长。声音可跨切镜延续，在 sound 或 sync 说明。
 
+有口播时在 `sound` 保存唯一台词正文及少量意群的近似时间/表达走势；`delivery/sync` 只接关键意思，不重复另一套台词或与全局指令相反的语气。意群独立于切镜，具体做法见 [说话表达迁移](../../sct-video-remix/references/speech.md)。`provenance` 可增加 `target`、`transfer`、`acceptance` 等短记录，解释用户目标、源证据如何进入本计划、结果该看什么；它们只帮助代理承接，不是新增格式门禁，也不会进入生成 prompt。
+
 若跳删/变速，`provenance.source_to_output` 可逐段记录源区间与输出区间，供验收定位；它是制作决策的证据，不是视频模型精确时序保证，不要求简单任务补映射表。
 
 `kind=variation` 需要已存在的 `parent` 和 `change`；`rerun` 保持同条件并引用父版本。旧 `variant` JSON 继续有效，新增计划不改变旧 v1 项目语义。保留的 `plans/<id>/plan.json` 和 `spec.json` 是可审查的交接快照。

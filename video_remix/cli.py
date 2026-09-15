@@ -14,6 +14,7 @@ from .creative import compile_plan
 from .dreamina import Dreamina
 from .project import add_asset, add_variant, compare, initialize, status
 from .runner import attach, execute, revision
+from .sound_assessment import assess
 from .storage import atomic, locked, now, project_at, read, slug
 
 
@@ -55,6 +56,13 @@ def parser():
     analysis.add_argument("asset")
     analysis.add_argument("--model", default=os.environ.get("GEMINI_MODEL"))
     analysis.add_argument("--brief", required=True)
+    analysis.add_argument("--refresh", action="store_true", help="显式重新调用参考分析")
+    assessment = sub.add_parser("assess", help="声音专项辅助评审；真实对比参考与原片，不作人工验收")
+    assessment.add_argument("variant")
+    assessment.add_argument("--reference", required=True)
+    assessment.add_argument("--focus", required=True, choices=("sound",))
+    assessment.add_argument("--brief", required=True, help="具体说明本次声音要保留或改变什么")
+    assessment.add_argument("--model", default=os.environ.get("GEMINI_MODEL"))
     variant = sub.add_parser("variant", help="登记助手编写的版本规格 JSON")
     variant.add_argument("file")
     plan = sub.add_parser("compile", help="将制作计划原文装配并登记版本，不生成")
@@ -91,7 +99,8 @@ def dispatch(a):
         raise ValueError("后端与项目固定版本不一致，请通过 Skill 启动器运行")
     handlers = {
         "asset": lambda: add_asset(root, a.id, a.file, a.role),
-        "analyze": lambda: analyze(root, a.asset, a.model, a.brief),
+        "analyze": lambda: analyze(root, a.asset, a.model, a.brief, refresh=a.refresh),
+        "assess": lambda: assess(root, a.variant, a.reference, a.focus, a.brief, a.model),
         "variant": lambda: add_variant(root, a.file),
         "compile": lambda: compile_plan(root, a.file),
         "run": lambda: execute(root, a.ids, a.budget, a.estimate_per_job, a.execute, a.wait),

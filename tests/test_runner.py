@@ -116,6 +116,75 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(len(provider.submissions), 1)
         self.assertEqual(provider.queries, ["task-1", "task-1"])
 
+    def test_pending_resume_ignores_missing_inputs_and_submission_dependencies(self):
+        provider = FakeDreamina()
+        provider.query_status = "querying"
+        self.run_job(provider=provider)
+        asset = read(self.root / "project.json")["assets"]["product"]
+        (self.root / asset["path"]).unlink()
+        with patch.object(provider, "account", side_effect=RuntimeError("account unavailable")), \
+                patch.object(provider, "preflight", side_effect=RuntimeError("model retired")), \
+                patch.object(provider, "arguments", side_effect=RuntimeError("inputs unavailable")), \
+                patch("video_remix.runner.disk_check", side_effect=ValueError("disk full")):
+            result = self.run_job(provider=provider)
+        self.assertEqual(result["stop"], "pending")
+        self.assertEqual(provider.queries, ["task-1", "task-1"])
+        self.assertEqual(len(provider.submissions), 1)
+
+    def test_downloaded_result_works_without_provider_or_inputs(self):
+        self.run_job()
+        asset = read(self.root / "project.json")["assets"]["product"]
+        (self.root / asset["path"]).unlink()
+        with patch("video_remix.runner.Dreamina", side_effect=ValueError("CLI missing")), \
+                patch("video_remix.runner.disk_check", side_effect=ValueError("disk full")):
+            result = execute(self.root, ["replica"], 100, 42, execute=True)
+        self.assertEqual(result["results"][0]["phase"], "downloaded")
+
+    def test_missing_raw_downloads_original_task_without_account_or_inputs(self):
+        provider = FakeDreamina()
+        self.run_job(provider=provider)
+        (self.root / "variants/replica/raw.mp4").unlink()
+        asset = read(self.root / "project.json")["assets"]["product"]
+        (self.root / asset["path"]).unlink()
+        with patch.object(provider, "account", side_effect=RuntimeError("account unavailable")), \
+                patch.object(provider, "preflight", side_effect=RuntimeError("model retired")):
+            result = self.run_job(provider=provider)
+        self.assertEqual(result["results"][0]["phase"], "downloaded")
+        self.assertEqual(provider.queries, ["task-1", "task-1"])
+        self.assertEqual(len(provider.submissions), 1)
+
+    def test_modified_raw_still_blocks_recovery(self):
+        provider = FakeDreamina()
+        self.run_job(provider=provider)
+        (self.root / "variants/replica/raw.mp4").write_bytes(b"changed result")
+        with self.assertRaisesRegex(ValueError, "原始视频已被修改"):
+            self.run_job(provider=provider)
+        self.assertEqual(provider.queries, ["task-1"])
+
+    def test_download_resume_checks_disk_and_ffprobe_before_download(self):
+        provider = FakeDreamina()
+        provider.query_status = "querying"
+        self.run_job(provider=provider)
+        provider.query_status = "success"
+        with patch.object(provider, "download") as download:
+            with patch("video_remix.runner.disk_check", side_effect=ValueError("disk full")), \
+                    self.assertRaisesRegex(ValueError, "disk full"):
+                self.run_job(provider=provider)
+            with patch("video_remix.runner.shutil.which", return_value=None), \
+                    self.assertRaisesRegex(ValueError, "ffprobe"):
+                self.run_job(provider=provider)
+            download.assert_not_called()
+        self.assertEqual(len(provider.submissions), 1)
+
+    def test_ambiguous_resume_blocks_without_submission_dependencies(self):
+        provider = FakeDreamina(ambiguous=True)
+        with self.assertRaises(TimeoutError):
+            self.run_job(provider=provider)
+        with patch.object(provider, "account", side_effect=RuntimeError("account unavailable")), \
+                self.assertRaisesRegex(ValueError, "结果不明"):
+            self.run_job(provider=provider)
+        self.assertEqual(len(provider.submissions), 1)
+
     def test_changed_input_stops_before_submit(self):
         asset = read(self.root / "project.json")["assets"]["product"]
         (self.root / asset["path"]).write_bytes(b"changed")
@@ -235,6 +304,31 @@ class RunnerTests(unittest.TestCase):
             self.add("replica")
         with self.assertRaises(ValueError):
             self.add("child", kind="variation", parent="missing", change="scene")
+
+    def test_new_rerun_requires_identical_generation_conditions(self):
+        self.add("same", kind="rerun", parent="replica")
+        changes = {"model": "seedance2.0_vip", "duration": 15, "ratio": "16:9",
+                   "resolution": "1080p", "prompt": "different copy",
+                   "inputs": [{"type": "image", "asset": "product", "role": "different role"}]}
+        for field, value in changes.items():
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, "rerun 必须保持"):
+                self.add("changed-" + field, kind="rerun", parent="replica", **{field: value})
+        self.add("changed-variation", kind="variation", parent="replica",
+                 prompt="different copy", change="原创台词")
+
+    def test_legacy_changed_rerun_can_resume_without_new_registration_rules(self):
+        directory = self.root / "variants/legacy"
+        atomic(directory / "spec.json", {**self.spec, "id": "legacy", "kind": "rerun",
+                                          "parent": "replica", "prompt": "legacy changed copy"})
+        provider = FakeDreamina()
+        provider.query_status = "querying"
+        self.run_job(["legacy"], provider=provider)
+        asset = read(self.root / "project.json")["assets"]["product"]
+        (self.root / asset["path"]).unlink()
+        provider.query_status = "success"
+        result = self.run_job(["legacy"], provider=provider)
+        self.assertEqual(result["results"][0]["phase"], "downloaded")
+        self.assertEqual(len(provider.submissions), 1)
 
     def test_nan_budget_rejected(self):
         with self.assertRaises(ValueError):

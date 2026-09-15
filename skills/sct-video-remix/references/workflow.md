@@ -16,7 +16,7 @@ Skill 已更名为 `sct-video-remix`。安装器接受旧目录名称并迁移�
 
 ## 1. 项目与参考
 
-开始制作、复刻或裂变时完整读取 [制作方法](../../sct-video-remix/references/production.md)。使用 `compile` 时读取 [制作计划合同](../../sct-video-remix/references/plan-contract.md)。链接兼容新旧 Skill 路径。故障查询和单纯下载不必重新分析素材。当前工作指导与后端为 0.3.0；旧项目升级前继续遵守其固定版。
+开始制作、复刻或裂变时完整读取 [制作方法](../../sct-video-remix/references/production.md)。使用 `compile` 时读取 [制作计划合同](../../sct-video-remix/references/plan-contract.md)；有口播按制作方法路由读说话指导。链接兼容新旧 Skill 路径。故障查询和单纯下载不必重新分析素材。当前工作指导与后端为 0.3.1；旧项目升级前继续遵守其固定版。
 
 ```sh
 init <用户项目目录> --name "商品前后对比"
@@ -33,6 +33,8 @@ Gemini 分析真实调用：
 ```
 
 密钥通过 `GEMINI_API_KEY` 注入；`GEMINI_BASE_URL` 可指定 Google-compatible 网关根地址，默认 Google 官方。`GEMINI_AUTH_MODE=google` 默认使用 x-goog-api-key；用户选择 API Mart 等 Bearer 网关时设 `GEMINI_AUTH_MODE=bearer`（不是自动切供应商）。`GEMINI_MODEL` 可替代 --model。不要把 key 写进命令文本、版本 JSON 或笔记。原始响应和分析文本均落项目目录。按素材哈希、区间和分析目的复用已有分析；已有分析缺关键维度时只补这一维，不每步重新上传视频。
+
+0.3.1 起，相同素材 SHA、模型、网关、完整分析模板与 brief 的成功分析会命中缓存，返回 `cache_hit: true`，不重复发请求。需要重新观察时显式加 `--refresh`，保留旧结果；旧版没有签名的记录仍可人工读取复用，不自动猜等价。区间以实际登记的视频文件为准，改变区间需明确准备/登记媒体。若旁边有 `corrections.md`，缓存结果同时返回其路径，制作时与原分析一起读取。
 
 ## 2. 生成提示词和裂变
 
@@ -97,6 +99,17 @@ Gemini 分析真实调用：
 `compare` 生成本地 HTML 对比文档，左条件、右原始视频；直接把文件链接交给用户。若用户指定飞书，可用宿主的飞书工具上传同一原文件，后端不依赖飞书。
 
 先交付视频，再写简短结论。运行成功仅表示文件生成，不表示商品效果或自然度合格。
+
+有声结果可做一次目标明确的音轨对比（使用 Gemini 分析额度，不是即梦生成积分）：
+
+```sh
+--project <目录> assess <版本ID> --reference <参考视频素材ID> --focus sound \
+  --brief "具体说明用户要保留的声音表达、紧凑感，以及允许改变什么" --model <模型>
+```
+
+当前只支持 `sound`，需要 ffmpeg、ffprobe 和相同 Gemini 配置。它校验参考和生成原片哈希，提取完整原速第一音轨、保留声道、转成 24kHz PCM，单份超过 16 MiB 则停止，不自动裁剪/降噪/变速。两条音轨在一次请求中比较，记录输入、模型、用量和诊断；请求失败不自动重试，先看已有 run/原始响应。每次 `assess` 是一次新的检查，不要因尚未看到结果重复调用。
+
+返回的 `assessment` 是带声明的辅助意见，`raw_analysis` 是 Gemini 原文。它不会写入人工选择，不评画面或连续动作，不保证秒数和主观判断正确。将辅助结果与抽帧/动态检查、用户意见一起形成简短交付，仍以真实原片供用户判断。比较时提供原参考及新成片，不只贴机器结论。
 
 ## 视频平台扩展
 

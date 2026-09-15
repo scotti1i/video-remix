@@ -6,11 +6,56 @@ from unittest.mock import patch
 import urllib.error
 import io
 
-from video_remix.analysis import request
+from video_remix.analysis import analyze, request
+from video_remix.project import add_asset, initialize
 from video_remix.storage import read
 
 
 class AnalysisTests(unittest.TestCase):
+    def test_analysis_cache_and_explicit_refresh_preserve_original(self):
+        payload = {"candidates": [{"content": {"parts": [{"text": "first observation"}]}}]}
+        class Response(io.BytesIO):
+            status = 200
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "project"
+            initialize(root, "test")
+            media = Path(directory) / "source.mp4"
+            media.write_bytes(b"test-source")
+            add_asset(root, "ref", media, "reference")
+            with patch.dict("os.environ", {"GEMINI_API_KEY": "test-key"}), patch(
+                    "urllib.request.urlopen", side_effect=lambda *a, **k: Response(json.dumps(payload).encode())) as fetch:
+                original = analyze(root, "ref", "gemini-test", "preserve dense speech")
+                correction = Path(original["analysis"]).with_name("corrections.md")
+                correction.write_text("hard cut, not continuous insertion")
+                cached = analyze(root, "ref", "gemini-test", "preserve dense speech")
+                self.assertTrue(cached["cache_hit"])
+                self.assertEqual(cached["analysis"], original["analysis"])
+                self.assertEqual(cached["corrections"], str(correction))
+                self.assertEqual(fetch.call_count, 1)
+                fresh = analyze(root, "ref", "gemini-test", "preserve dense speech", refresh=True)
+                self.assertNotEqual(fresh["analysis"], original["analysis"])
+                self.assertEqual(fetch.call_count, 2)
+                analyze(root, "ref", "gemini-test", "inspect only lighting")
+                self.assertEqual(fetch.call_count, 3)
+
+    def test_incomplete_analysis_cache_is_not_reused(self):
+        payload = {"candidates": [{"content": {"parts": [{"text": "observation"}]}}]}
+        class Response(io.BytesIO):
+            status = 200
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "project"
+            initialize(root, "test")
+            media = Path(directory) / "source.mp4"
+            media.write_bytes(b"test-source")
+            add_asset(root, "ref", media, "reference")
+            with patch.dict("os.environ", {"GEMINI_API_KEY": "test-key"}), patch(
+                    "urllib.request.urlopen", side_effect=lambda *a, **k: Response(json.dumps(payload).encode())) as fetch:
+                first = analyze(root, "ref", "gemini-test", "brief")
+                Path(first["analysis"]).write_text("")
+                second = analyze(root, "ref", "gemini-test", "brief")
+                self.assertNotEqual(first["analysis"], second["analysis"])
+                self.assertEqual(fetch.call_count, 2)
+
     def test_bearer_gateway_header_and_no_secret_in_run(self):
         payload = {"candidates": [{"content": {"parts": [{"text": "observations"}]}}]}
         class Response(io.BytesIO):

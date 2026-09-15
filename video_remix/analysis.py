@@ -1,6 +1,7 @@
 """Gemini 原生接口：保留原始返回，直接给助手使用分析文本。"""
 
 import base64
+import hashlib
 import json
 import mimetypes
 import os
@@ -15,7 +16,7 @@ from .project import asset_path
 from .storage import atomic, digest, now, read
 
 
-def analyze(root, asset_id, model, brief):
+def configuration(model):
     key = os.environ.get("GEMINI_API_KEY")
     if not key:
         raise ValueError("请通过 GEMINI_API_KEY 提供密钥；不写入项目文件")
@@ -23,8 +24,34 @@ def analyze(root, asset_id, model, brief):
         raise ValueError("用 --model 或 GEMINI_MODEL 指定当前账号支持的模型")
     base = os.environ.get("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com").rstrip("/")
     url = urllib.parse.urlsplit(base)
-    if url.scheme != "https" or not url.hostname or url.username or url.query:
+    if url.scheme != "https" or not url.hostname or url.username or url.query or url.fragment:
         raise ValueError("GEMINI_BASE_URL 必须是无凭据、无 query 的 HTTPS 地址")
+    if os.environ.get("GEMINI_AUTH_MODE", "google") not in ("google", "bearer"):
+        raise ValueError("GEMINI_AUTH_MODE 必须是 google 或 bearer")
+    return key, base
+
+
+def cached_analysis(root, signature):
+    for path in sorted((root / "analysis").glob("*/run.json"), reverse=True):
+        try:
+            run = read(path)
+            text = path.parent / "analysis.md"
+            raw = path.parent / "response.raw.json"
+            if (run.get("status") != "completed" or run.get("request_signature") != signature
+                    or not raw.is_file() or not text.is_file() or not text.read_text().strip()):
+                continue
+            result = {"analysis": str(text), "run": str(path), "cache_hit": True}
+            correction = path.parent / "corrections.md"
+            if correction.is_file():
+                result["corrections"] = str(correction)
+            return result
+        except (OSError, ValueError, TypeError):
+            continue
+    return None
+
+
+def analyze(root, asset_id, model, brief, refresh=False):
+    key, base = configuration(model)
     asset = read(root / "project.json")["assets"][asset_id]
     source = asset_path(root, asset)
     if digest(source) != asset["sha256"]:
@@ -36,13 +63,19 @@ def analyze(root, asset_id, model, brief):
     mime = mimetypes.guess_type(source)[0]
     if not mime or not mime.startswith("video/"):
         raise ValueError("参考分析需要视频文件")
+    signature = hashlib.sha256(json.dumps([asset["sha256"], model, base, prompt],
+                                         ensure_ascii=False).encode()).hexdigest()
+    cached = cached_analysis(root, signature)
+    if cached and not refresh:
+        return cached
     body = {"contents": [{"role": "user", "parts": [{"text": prompt},
             {"inline_data": {"mime_type": mime, "data": base64.b64encode(source.read_bytes()).decode()}}]}],
             "generationConfig": {"temperature": 0.2, "maxOutputTokens": 8192}}
     directory = root / "analysis" / uuid.uuid4().hex[:12]
     directory.mkdir(parents=True)
     run = {"status": "request_intent", "model": model, "source": asset,
-           "prompt": prompt, "created_at": now(), "requests": 1, "retry": 0}
+           "prompt": prompt, "created_at": now(), "requests": 1, "retry": 0,
+           "request_signature": signature, "refresh": refresh}
     atomic(directory / "run.json", run)
     return request(directory, base, model, key, body, run)
 
