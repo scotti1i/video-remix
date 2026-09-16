@@ -16,7 +16,7 @@ Skill 已更名为 `sct-video-remix`。安装器接受旧目录名称并迁移�
 
 ## 1. 项目与参考
 
-开始制作、复刻或裂变时完整读取 [制作方法](../../sct-video-remix/references/production.md)。使用 `compile` 或 `vary` 时读取 [制作计划合同](../../sct-video-remix/references/plan-contract.md)；有口播按制作方法路由读说话指导。链接兼容新旧 Skill 路径。故障查询和单纯下载不必重新分析素材。当前工作指导与后端为 0.3.8；旧项目升级前继续遵守其固定版。
+开始制作、复刻或裂变时完整读取 [制作方法](../../sct-video-remix/references/production.md)。使用 `compile` 或 `vary` 时读取 [制作计划合同](../../sct-video-remix/references/plan-contract.md)；有口播按制作方法路由读说话指导。链接兼容新旧 Skill 路径。故障查询和单纯下载不必重新分析素材。当前工作指导与后端为 0.3.9；旧项目升级前继续遵守其固定版。
 
 ```sh
 init <用户项目目录> --name "商品前后对比"
