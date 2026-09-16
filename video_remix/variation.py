@@ -85,7 +85,11 @@ def replace_images(base, child, control):
     protected, replaced = set(control["frozen_core"]["product_assets"]), set()
     for name, slot in control["slots"].items():
         for entry in slot.get("images", []):
-            require_keys(entry, ("from", "to"), f"{name}.images")
+            if not isinstance(entry, dict) or not {"from", "to"} <= entry.keys() or \
+                    entry.keys() - {"from", "to", "role"}:
+                raise ValueError(f"{name}.images 需要 from / to，可选 role")
+            if "role" in entry and (not isinstance(entry["role"], str) or not entry["role"].strip()):
+                raise ValueError("新图片 role 必须是非空文字")
             before, after = entry["from"], entry["to"]
             if not all(isinstance(v, str) and v for v in (before, after)) or before == after:
                 raise ValueError("图片替换需要不同的 from / to 素材 ID")
@@ -96,6 +100,8 @@ def replace_images(base, child, control):
             if len(matches) != 1:
                 raise ValueError("图片替换须指向父计划唯一的 image 输入；不能替换音视频")
             child["inputs"][matches[0]]["asset"] = after
+            if "role" in entry:
+                child["inputs"][matches[0]]["role"] = entry["role"]
             replaced.add(before)
 
 

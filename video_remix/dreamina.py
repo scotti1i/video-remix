@@ -13,6 +13,54 @@ from .project import asset_path
 TERMINAL_FAILURES = frozenset(("fail", "failed", "failure", "error", "cancelled", "canceled"))
 
 
+COMMAND_ERRORS = {
+    "cli_exit": "CLI 非零退出，未识别到可安全保留的错误原因",
+    "cli_timeout": "CLI 等待超时，操作结果需另行核实",
+    "upload_timeout": "CLI 报告素材上传超时，任务是否提交需另行核实",
+    "upload_commit_timeout": "CLI 报告素材上传确认超时，任务是否提交需另行核实",
+    "compliance_confirmation_required": "平台要求先在网页端完成模型使用确认",
+    "concurrency_limit": "平台并发任务数已达上限",
+    "insufficient_credits": "CLI 报告账户积分不足",
+    "authentication_required": "CLI 报告登录凭据无效或已过期",
+    "invalid_response": "CLI 未返回预期的 JSON 对象，操作结果需另行核实",
+    "missing_task_id": "提交响应未返回任务 ID，已保留不确定状态，请核对平台",
+}
+
+
+class CommandError(RuntimeError):
+    """只携带白名单诊断，不输出命令参数、响应原文或异常上下文。"""
+
+    def __init__(self, category, returncode=None, timeout=None, provider_code=None):
+        reason = COMMAND_ERRORS[category]
+        self.details = {"error_class": category, "error_reason": reason}
+        for key, value in (("cli_exit_code", returncode), ("cli_timeout_seconds", timeout),
+                           ("provider_error_code", provider_code)):
+            if type(value) is int and abs(value) < 10 ** 10:
+                self.details[key] = value
+        super().__init__(reason)
+
+
+def command_failure(stdout, stderr, returncode=None, timeout=None):
+    # 原文只参与匹配；持久记录只包含固定分类、固定文案及有界数字。
+    text = "\n".join(value.decode("utf-8", errors="replace") if isinstance(value, bytes)
+                     else value for value in (stdout, stderr) if isinstance(value, (str, bytes))).lower()
+    timed_out = timeout is not None or any(marker in text for marker in
+                                         ("timeout", "timed out", "deadline exceeded"))
+    commit = any(marker in text for marker in
+                 ("commitimageupload", "commit_image_upload", "commitupload", "commit upload"))
+    signatures = (("aigccomplianceconfirmationrequired", "compliance_confirmation_required"),
+                  ("exceedconcurrencylimit", "concurrency_limit"),
+                  ("insufficientcredits", "insufficient_credits"),
+                  ("insufficient credits", "insufficient_credits"),
+                  ("token expired", "authentication_required"),
+                  ("invalid access token", "authentication_required"))
+    category = next((category for marker, category in signatures if marker in text), "cli_exit")
+    if timed_out:
+        category = "upload_commit_timeout" if commit else ("upload_timeout" if "upload" in text else "cli_timeout")
+    code = re.search(r"\bret=(-?\d{1,10})\b", text)
+    return CommandError(category, returncode, timeout, int(code.group(1)) if code else None)
+
+
 def failure_details(payload):
     # 只保存已知错误的分类和固定文案，避免平台原文夹带 token、签名 URL 或 prompt。
     reason = str(payload.get("fail_reason", ""))
@@ -24,6 +72,9 @@ def failure_details(payload):
         if signature in reason.lower():
             details = {"error_class": category, "error_reason": message}
             break
+    classified = command_failure(reason, None).details
+    if classified["error_class"] != "cli_exit":
+        details = classified
     if status in ("cancelled", "canceled"):
         details = {"error_class": "cancelled", "error_reason": "平台任务已取消"}
     code = re.search(r"\bret=(-?\d{1,10})\b", reason)
@@ -47,17 +98,19 @@ def queue_snapshot(payload):
 
 
 def command(args, timeout=120):
-    result = subprocess.run(args, text=True, capture_output=True, timeout=timeout)
+    try:
+        result = subprocess.run(args, text=True, capture_output=True, timeout=timeout)
+    except subprocess.TimeoutExpired as error:
+        raise command_failure(error.stdout, error.stderr, timeout=timeout) from None
     if result.returncode:
-        # 平台原始错误可能带鉴权字段，不把整个 stderr 带入日志。
-        raise RuntimeError(f"{Path(args[0]).name} {args[1]} 失败，退出码 {result.returncode}")
+        raise command_failure(result.stdout, result.stderr, returncode=result.returncode)
     text = result.stdout.strip()
     try:
         value = json.loads(text)
     except json.JSONDecodeError:
-        raise RuntimeError("CLI 未返回纯 JSON，请核对版本和登录态") from None
+        raise CommandError("invalid_response") from None
     if not isinstance(value, dict):
-        raise RuntimeError("CLI 返回了非对象 JSON")
+        raise CommandError("invalid_response")
     return value
 
 

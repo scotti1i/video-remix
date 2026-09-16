@@ -7,7 +7,7 @@ import subprocess
 import time
 
 from . import __version__
-from .dreamina import Dreamina, TERMINAL_FAILURES, failure_details, queue_snapshot, unpack
+from .dreamina import CommandError, Dreamina, TERMINAL_FAILURES, failure_details, queue_snapshot, unpack
 from .project import validate_spec
 from .storage import atomic, digest, locked, now, read, slug
 
@@ -127,18 +127,23 @@ def submit_once(directory, spec, assets, args, provider, estimate):
            "phase": "submit_intent", "submit_attempts": 1, "task_id": None,
            "estimated_credits": estimate, "credits": None, "provider": spec["provider"],
            "model": spec["model"], "prompt": spec["prompt"], "actual_argv": args,
+           "generation_inputs": [dict(entry) for entry in spec["inputs"]],
            "inputs": [{**entry, **assets[entry["asset"]]} for entry in spec["inputs"]]}
     atomic(directory / "run.json", run)
     # 状态先落盘。超时、解析失败或进程中断都保留 submit_intent。
     try:
         payload = unpack(provider.submit(args))
+        if not isinstance(payload, dict):
+            raise CommandError("invalid_response")
+        task_id = payload.get("submit_id")
+        if not isinstance(task_id, str) or not task_id:
+            raise CommandError("missing_task_id")
     except Exception as error:
         run.update(error_type=type(error).__name__, failed_at=now())
+        if isinstance(error, CommandError):
+            run.update(error.details)
         atomic(directory / "run.json", run)
         raise
-    task_id = payload.get("submit_id")
-    if not isinstance(task_id, str) or not task_id:
-        raise RuntimeError("提交未返回任务 ID，已保留不确定状态，请核对平台")
     run.update(phase="submitted", task_id=task_id, credits=payload.get("credit_count"))
     atomic(directory / "run.json", run)
     return run

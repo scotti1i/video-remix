@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from video_remix.dreamina import CommandError
 from video_remix.project import add_asset, add_variant, compare, initialize, status
 from video_remix.runner import attach, execute
 from video_remix.storage import atomic, project_at, read
@@ -106,6 +107,43 @@ class RunnerTests(unittest.TestCase):
         attach(self.root, "replica", "task-1", provider)
         self.run_job(provider=provider)
         self.assertEqual(len(provider.submissions), 1)
+
+    def test_safe_submit_diagnostic_persists_without_permitting_resubmission(self):
+        provider = FakeDreamina()
+        error = CommandError("upload_commit_timeout", returncode=1)
+        with patch.object(provider, "submit", side_effect=error) as submit:
+            with self.assertRaises(CommandError):
+                self.run_job(provider=provider)
+            record = read(self.root / "variants/replica/run.json")
+            self.assertEqual(record["phase"], "submit_intent")
+            self.assertIsNone(record["task_id"])
+            self.assertIsNone(record["credits"])
+            self.assertEqual(record["submit_attempts"], 1)
+            self.assertEqual(record["error_class"], "upload_commit_timeout")
+            self.assertEqual(record["cli_exit_code"], 1)
+            with self.assertRaisesRegex(ValueError, "结果不明"):
+                self.run_job(provider=provider)
+            submit.assert_called_once()
+
+    def test_missing_task_id_retains_diagnostic_and_uncertain_state(self):
+        provider = FakeDreamina()
+        with patch.object(provider, "submit", return_value={"credit_count": 42, "debug": "token=secret"}):
+            with self.assertRaises(CommandError):
+                self.run_job(provider=provider)
+        record = read(self.root / "variants/replica/run.json")
+        self.assertEqual(record["phase"], "submit_intent")
+        self.assertEqual(record["error_class"], "missing_task_id")
+        self.assertIn("failed_at", record)
+        self.assertNotIn("secret", json.dumps(record))
+
+    def test_generation_input_snapshot_preserves_spec_role_separately(self):
+        inputs = [{"type": "image", "asset": "product", "role": "本次生成仅参照包装颜色"}]
+        self.add("different-role", inputs=inputs)
+        self.run_job(["different-role"])
+        record = read(self.root / "variants/different-role/run.json")
+        self.assertEqual(record["inputs"][0]["role"], "包装")
+        self.assertEqual(record["generation_inputs"], inputs)
+        self.assertEqual(record["prompt"], self.spec["prompt"])
 
     def test_download_retry_does_not_submit_again(self):
         provider = FakeDreamina(fail_download=True)

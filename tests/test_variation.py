@@ -93,6 +93,37 @@ class VariationTests(unittest.TestCase):
         self.assertEqual(child["intent"], self.base["intent"])
         self.assertEqual(child["shots"][1], self.base["shots"][1])
 
+    def test_replacement_image_role_reaches_actual_prompt_without_changing_core(self):
+        role = "New adult performer on wooden terrace; framing reference, not a forced first frame."
+        self.control["slots"]["scene"]["images"][0]["role"] = role
+        result = self.run_control()
+        child = read(result["plan"])
+        spec = read(result["spec"])
+        self.assertEqual(child["inputs"][0]["role"], role)
+        self.assertIn("@image1: " + role, spec["prompt"])
+        self.assertNotIn("@image1: scene and person", spec["prompt"])
+        self.assertEqual(child["sound"], self.base["sound"])
+        self.assertEqual(child["shots"][1], self.base["shots"][1])
+        self.assertEqual(child["inputs"][1], self.base["inputs"][1])
+        changes = {item["path"] for item in read(result["diff"])["changes"]}
+        self.assertIn("inputs.0.role", changes)
+        self.assertEqual(read(self.root / "plans/base/plan.json"), self.base)
+
+    def test_bad_replacement_roles_and_extra_image_fields_leave_no_child(self):
+        for extra in ({"role": ""}, {"role": None}, {"role": []}, {"prompt": "rewrite"}):
+            control = copy.deepcopy(self.control)
+            control["slots"]["scene"]["images"][0].update(extra)
+            with self.subTest(extra=extra), self.assertRaises(ValueError):
+                self.run_control(control)
+            self.assert_no_child()
+
+    def test_role_update_cannot_bypass_product_protection(self):
+        self.control["slots"] = {"person": {"images": [
+            {"from": "product", "to": "terrace-anchor", "role": "new person"}]}}
+        with self.assertRaisesRegex(ValueError, "不能替换商品"):
+            self.run_control()
+        self.assert_no_child()
+
     def test_frozen_fields_cannot_be_replaced(self):
         for path in ("sound", "intent", "product", "duration", "mode", "inputs.0.type",
                      "shots.0.start", "shots.0.sync", "shots.1.delivery", "provenance.source_to_output"):
