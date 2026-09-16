@@ -3,6 +3,7 @@
 import base64
 import hashlib
 import json
+import math
 import mimetypes
 import os
 from pathlib import Path
@@ -50,7 +51,16 @@ def cached_analysis(root, signature):
     return None
 
 
-def analyze(root, asset_id, model, brief, refresh=False):
+def sampling_options(fps):
+    if fps is None:
+        return {}
+    if type(fps) not in (int, float) or not math.isfinite(fps) or not 0 < fps <= 24:
+        raise ValueError("--video-fps 必须是大于0、不超过24的有限数字")
+    return {"videoMetadata": {"fps": float(fps)}}
+
+
+def analyze(root, asset_id, model, brief, refresh=False, video_fps=None):
+    sampling = sampling_options(video_fps)
     key, base = configuration(model)
     asset = read(root / "project.json")["assets"][asset_id]
     source = asset_path(root, asset)
@@ -63,19 +73,23 @@ def analyze(root, asset_id, model, brief, refresh=False):
     mime = mimetypes.guess_type(source)[0]
     if not mime or not mime.startswith("video/"):
         raise ValueError("参考分析需要视频文件")
-    signature = hashlib.sha256(json.dumps([asset["sha256"], model, base, prompt],
-                                         ensure_ascii=False).encode()).hexdigest()
+    identity = [asset["sha256"], model, base, prompt]
+    if sampling:
+        identity.append(sampling)
+    signature = hashlib.sha256(json.dumps(identity, ensure_ascii=False).encode()).hexdigest()
     cached = cached_analysis(root, signature)
     if cached and not refresh:
         return cached
     body = {"contents": [{"role": "user", "parts": [{"text": prompt},
-            {"inline_data": {"mime_type": mime, "data": base64.b64encode(source.read_bytes()).decode()}}]}],
+            {"inline_data": {"mime_type": mime, "data": base64.b64encode(source.read_bytes()).decode()},
+             **sampling}]}],
             "generationConfig": {"temperature": 0.2, "maxOutputTokens": 8192}}
     directory = root / "analysis" / uuid.uuid4().hex[:12]
     directory.mkdir(parents=True)
     run = {"status": "request_intent", "model": model, "source": asset,
            "prompt": prompt, "created_at": now(), "requests": 1, "retry": 0,
-           "request_signature": signature, "refresh": refresh}
+           "request_signature": signature, "refresh": refresh,
+           "requested_video_fps": video_fps}
     atomic(directory / "run.json", run)
     return request(directory, base, model, key, body, run)
 

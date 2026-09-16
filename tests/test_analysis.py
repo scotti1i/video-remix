@@ -6,12 +6,48 @@ from unittest.mock import patch
 import urllib.error
 import io
 
-from video_remix.analysis import analyze, request
+from video_remix.analysis import analyze, request, sampling_options
 from video_remix.project import add_asset, initialize
 from video_remix.storage import read
 
 
 class AnalysisTests(unittest.TestCase):
+    def test_fps_is_sent_and_separates_cache_without_changing_video(self):
+        payload = {"candidates": [{"content": {"parts": [{"text": "observed"}]}}]}
+        class Response(io.BytesIO):
+            status = 200
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            initialize(root, "sampling")
+            media = root / "reference.mp4"
+            media.write_bytes(b"unaltered-video")
+            add_asset(root, "ref", media, "reference")
+            with patch.dict("os.environ", {"GEMINI_API_KEY": "test-key"}), patch(
+                    "urllib.request.urlopen", side_effect=lambda *a, **k: Response(json.dumps(payload).encode())) as fetch:
+                default = analyze(root, "ref", "gemini-test", "brief")
+                first = json.loads(fetch.call_args.args[0].data)["contents"][0]["parts"][1]
+                self.assertNotIn("videoMetadata", first)
+                dense = analyze(root, "ref", "gemini-test", "brief", video_fps=5)
+                part = json.loads(fetch.call_args.args[0].data)["contents"][0]["parts"][1]
+                self.assertEqual(part["videoMetadata"], {"fps": 5.0})
+                self.assertEqual(part["inline_data"], first["inline_data"])
+                self.assertNotEqual(dense["analysis"], default["analysis"])
+                self.assertEqual(read(dense["run"])["requested_video_fps"], 5)
+                cached = analyze(root, "ref", "gemini-test", "brief", video_fps=5.0)
+                self.assertTrue(cached["cache_hit"])
+                self.assertEqual(cached["analysis"], dense["analysis"])
+                self.assertEqual(fetch.call_count, 2)
+                analyze(root, "ref", "gemini-test", "brief", video_fps=2)
+                self.assertEqual(fetch.call_count, 3)
+
+    def test_invalid_fps_is_rejected_before_api_or_credentials(self):
+        for fps in (0, -1, 25, float("nan"), float("inf"), True, "5"):
+            with self.subTest(fps=fps), patch("urllib.request.urlopen") as fetch:
+                with self.assertRaisesRegex(ValueError, "video-fps"):
+                    analyze(Path("/not-read"), "ref", "model", "brief", video_fps=fps)
+                fetch.assert_not_called()
+        self.assertEqual(sampling_options(0.5), {"videoMetadata": {"fps": 0.5}})
+
     def test_analysis_cache_and_explicit_refresh_preserve_original(self):
         payload = {"candidates": [{"content": {"parts": [{"text": "first observation"}]}}]}
         class Response(io.BytesIO):

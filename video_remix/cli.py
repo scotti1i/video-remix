@@ -59,12 +59,14 @@ def parser():
     analysis.add_argument("--model", default=os.environ.get("GEMINI_MODEL"))
     analysis.add_argument("--brief", required=True)
     analysis.add_argument("--refresh", action="store_true", help="显式重新调用参考分析")
+    analysis.add_argument("--video-fps", type=float, help="请求分析抽帧率(0,24]；省略沿用服务端默认，提高会增加用量")
     assessment = sub.add_parser("assess", help="对照参考与原片，专项声音或完整声画；不作人工验收")
     assessment.add_argument("variant")
     assessment.add_argument("--reference", required=True)
     assessment.add_argument("--focus", required=True, choices=("sound", "performance"))
     assessment.add_argument("--brief", required=True, help="本轮检查焦点；有冻结目标时不能放宽它，无目标的旧版需说明评审目标")
     assessment.add_argument("--model", default=os.environ.get("GEMINI_MODEL"))
+    assessment.add_argument("--video-fps", type=float, help="仅performance：请求视频分析抽帧率，非成片帧率")
     variant = sub.add_parser("variant", help="登记助手编写的版本规格 JSON")
     variant.add_argument("file")
     plan = sub.add_parser("compile", help="将制作计划原文装配并登记版本，不生成")
@@ -95,6 +97,8 @@ def dispatch(a):
         return doctor(a.account)
     if a.command == "init":
         return initialize(a.path, a.name)
+    if a.command == "assess" and a.focus == "sound" and a.video_fps is not None:
+        raise ValueError("--video-fps 只用于视频分析，不适用于sound音轨检查")
     root = project_at(a.project)
     if a.command == "compatibility":
         return inspect(root)
@@ -103,8 +107,9 @@ def dispatch(a):
         raise ValueError("后端与项目固定版本不一致，请通过 Skill 启动器运行")
     handlers = {
         "asset": lambda: add_asset(root, a.id, a.file, a.role),
-        "analyze": lambda: analyze(root, a.asset, a.model, a.brief, refresh=a.refresh),
-        "assess": lambda: (assess_performance(root, a.variant, a.reference, a.brief, a.model)
+        "analyze": lambda: analyze(root, a.asset, a.model, a.brief, refresh=a.refresh, video_fps=a.video_fps),
+        "assess": lambda: (assess_performance(root, a.variant, a.reference, a.brief, a.model,
+                                             video_fps=a.video_fps)
                            if a.focus == "performance" else
                            assess(root, a.variant, a.reference, a.focus, a.brief, a.model)),
         "variant": lambda: add_variant(root, a.file),

@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 import urllib.error
 
-from video_remix.cli import parser
+from video_remix.cli import dispatch, parser
 from video_remix.performance_assessment import assess_performance
 from video_remix.project import add_asset, initialize
 from video_remix.storage import atomic, digest, read
@@ -73,6 +73,36 @@ class PerformanceAssessmentTests(unittest.TestCase):
         self.assertIn("不是人工验收", Path(result["assessment"]).read_text())
         media = read(Path(result["run"]).parent / "media.json")
         self.assertEqual(media["reference"]["transformation"], "none")
+
+    def test_explicit_sampling_applies_to_both_videos_and_is_recorded(self):
+        with patch("urllib.request.urlopen", return_value=Response(json.dumps(self.payload).encode())) as fetch:
+            result = assess_performance(self.root, "v1", "ref", "保留节奏", "gemini-test", video_fps=5)
+        parts = json.loads(fetch.call_args.args[0].data)["contents"][0]["parts"]
+        videos = [part for part in parts if "inline_data" in part]
+        self.assertEqual([part["videoMetadata"] for part in videos], [{"fps": 5.0}] * 2)
+        self.assertEqual([base64.b64decode(part["inline_data"]["data"]) for part in videos],
+                         [b"reference-original", b"variant-original"])
+        self.assertEqual(read(result["run"])["requested_video_fps"], 5)
+        media = read(Path(result["run"]).parent / "media.json")
+        self.assertTrue(all(item["requested_video_fps"] == 5 for item in media.values()))
+        self.assertEqual(fetch.call_count, 1)
+
+    def test_invalid_sampling_and_audio_only_option_do_not_call_api(self):
+        with patch("urllib.request.urlopen") as fetch:
+            with self.assertRaisesRegex(ValueError, "video-fps"):
+                assess_performance(self.root, "v1", "ref", "brief", "model", video_fps=float("nan"))
+            args = parser().parse_args(["assess", "v1", "--reference", "ref", "--focus", "sound",
+                                        "--brief", "声音", "--video-fps", "5"])
+            with self.assertRaisesRegex(ValueError, "不适用于sound"):
+                dispatch(args)
+            fetch.assert_not_called()
+
+    def test_cli_routes_sampling_to_performance(self):
+        args = parser().parse_args(["--project", str(self.root), "assess", "v1", "--reference", "ref",
+                                   "--focus", "performance", "--brief", "节奏", "--video-fps", "5"])
+        with patch("video_remix.cli.assess_performance", return_value={}) as called:
+            dispatch(args)
+        self.assertEqual(called.call_args.kwargs["video_fps"], 5.0)
 
     def test_missing_probe_does_not_call_api(self):
         with patch("video_remix.performance_assessment.shutil.which", return_value=None), patch(

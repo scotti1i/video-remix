@@ -16,7 +16,7 @@ Skill 已更名为 `sct-video-remix`。安装器接受旧目录名称并迁移�
 
 ## 1. 项目与参考
 
-开始制作、复刻或裂变时完整读取 [制作方法](../../sct-video-remix/references/production.md)。使用 `compile` 或 `vary` 时读取 [制作计划合同](../../sct-video-remix/references/plan-contract.md)；有口播按制作方法路由读说话指导。链接兼容新旧 Skill 路径。故障查询和单纯下载不必重新分析素材。当前工作指导与后端为 0.3.4；旧项目升级前继续遵守其固定版。
+开始制作、复刻或裂变时完整读取 [制作方法](../../sct-video-remix/references/production.md)。使用 `compile` 或 `vary` 时读取 [制作计划合同](../../sct-video-remix/references/plan-contract.md)；有口播按制作方法路由读说话指导。链接兼容新旧 Skill 路径。故障查询和单纯下载不必重新分析素材。当前工作指导与后端为 0.3.5；旧项目升级前继续遵守其固定版。
 
 ```sh
 init <用户项目目录> --name "商品前后对比"
@@ -35,6 +35,8 @@ Gemini 分析真实调用：
 密钥通过 `GEMINI_API_KEY` 注入；`GEMINI_BASE_URL` 可指定 Google-compatible 网关根地址，默认 Google 官方。`GEMINI_AUTH_MODE=google` 默认使用 x-goog-api-key；用户选择 API Mart 等 Bearer 网关时设 `GEMINI_AUTH_MODE=bearer`（不是自动切供应商）。`GEMINI_MODEL` 可替代 --model。不要把 key 写进命令文本、版本 JSON 或笔记。原始响应和分析文本均落项目目录。按素材哈希、区间和分析目的复用已有分析；已有分析缺关键维度时只补这一维，不每步重新上传视频。
 
 0.3.1 起，相同素材 SHA、模型、网关、完整分析模板与 brief 的成功分析会命中缓存，返回 `cache_hit: true`，不重复发请求。需要重新观察时显式加 `--refresh`，保留旧结果；旧版没有签名的记录仍可人工读取复用，不自动猜等价。区间以实际登记的视频文件为准，改变区间需明确准备/登记媒体。若旁边有 `corrections.md`，缓存结果同时返回其路径，制作时与原分析一起读取。
+
+0.3.5 的 `analyze` 与 `assess --focus performance` 可选 `--video-fps 5` 请求更密的视频观察，范围大于0且不超过24；不是生成帧率，不转码、改速或裁剪原文件，也不把参考视频传进生成。省略时沿用服务端默认。[Gemini 官方说明](https://ai.google.dev/gemini-api/docs/generate-content/video-understanding)默认约1fps可能漏快速动作，支持 `videoMetadata.fps`；网关是否采用该参数仍需实测，记录只承诺请求值，不伪称已获逐帧观察。快速翻转、短暂触发与恢复可有理由选更密采样，不每条默认增加费用。帧率进入分析缓存签名；不同帧率不会复用为同一观察。参数被拒绝就报告，不静默去掉参数重试；`sound` 不接受此视频参数。
 
 ## 2. 生成提示词和裂变
 

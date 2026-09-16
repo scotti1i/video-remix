@@ -8,7 +8,7 @@ import shutil
 import uuid
 
 from . import __version__
-from .analysis import configuration, request
+from .analysis import configuration, request, sampling_options
 from .assessment_context import assessment_prompt, frozen_target
 from .project import asset_path
 from .runner import revision
@@ -37,7 +37,8 @@ PROMPT = """对照两条真实视频：reference 是用户选择的参考，vari
 """
 
 
-def video_inputs(root, directory, records, key):
+def video_inputs(root, directory, records, key, video_fps=None):
+    sampling = sampling_options(video_fps)
     probe_tool = shutil.which("ffprobe")
     if not probe_tool:
         raise ValueError("缺少 ffprobe；停止，不用抽帧冒充完整视频对比")
@@ -58,14 +59,16 @@ def video_inputs(root, directory, records, key):
         if not video or not container or "image" in container or container.endswith("_pipe"):
             raise ValueError(f"{label} 不是可读视频")
         metadata[label] = {"sha256": digest(path), "bytes": path.stat().st_size,
-                           "probe": probe, "transformation": "none"}
+                           "probe": probe, "transformation": "none",
+                           "requested_video_fps": video_fps}
         parts.extend([{"text": label}, {"inline_data": {
-            "mime_type": mime, "data": base64.b64encode(path.read_bytes()).decode()}}])
+            "mime_type": mime, "data": base64.b64encode(path.read_bytes()).decode()}, **sampling}])
     atomic(directory / "media.json", metadata)
     return parts
 
 
-def assess_performance(root, variant_id, reference_id, brief, model):
+def assess_performance(root, variant_id, reference_id, brief, model, video_fps=None):
+    sampling_options(video_fps)
     if not isinstance(brief, str) or not brief.strip():
         raise ValueError("--brief 必须说明核心保留项与允许变化项")
     root = Path(root).resolve()
@@ -79,10 +82,10 @@ def assess_performance(root, variant_id, reference_id, brief, model):
            "version": __version__, "engine_revision": revision(), "sources": records,
            "brief": brief, "target_context": target, "model": model,
            "prompt": assessment_prompt(PROMPT, brief, target), "created_at": now(),
-           "requests": 0, "retry": 0, "usage": None}
+           "requests": 0, "retry": 0, "usage": None, "requested_video_fps": video_fps}
     atomic(directory / "run.json", run)
     try:
-        parts = video_inputs(root, directory, records, key)
+        parts = video_inputs(root, directory, records, key, video_fps=video_fps)
         body = {"contents": [{"role": "user", "parts": [{"text": run["prompt"]}, *parts]}],
                 "generationConfig": {"temperature": 0.2, "maxOutputTokens": 8192}}
         run.update(status="request_intent", requests=1)
