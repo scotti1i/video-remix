@@ -63,7 +63,7 @@ def parser():
     assessment.add_argument("variant")
     assessment.add_argument("--reference", required=True)
     assessment.add_argument("--focus", required=True, choices=("sound", "performance"))
-    assessment.add_argument("--brief", required=True, help="具体说明核心保留项与允许变化项")
+    assessment.add_argument("--brief", required=True, help="本轮检查焦点；有冻结目标时不能放宽它，无目标的旧版需说明评审目标")
     assessment.add_argument("--model", default=os.environ.get("GEMINI_MODEL"))
     variant = sub.add_parser("variant", help="登记助手编写的版本规格 JSON")
     variant.add_argument("file")

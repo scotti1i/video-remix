@@ -9,6 +9,7 @@ import uuid
 
 from . import __version__
 from .analysis import configuration, request
+from .assessment_context import assessment_prompt, frozen_target
 from .project import asset_path
 from .runner import revision
 from .sound_assessment import command, sources
@@ -68,12 +69,14 @@ def assess_performance(root, variant_id, reference_id, brief, model):
     root = Path(root).resolve()
     key, base = configuration(model)
     records = sources(root, variant_id, reference_id)
+    target = frozen_target(root, variant_id)
     directory = root / "analysis" / uuid.uuid4().hex[:12]
     directory.mkdir(parents=True)
     run = {"format": "video-remix-assessment.v1", "status": "preparing", "focus": "performance",
            "notice": NOTICE, "variant_id": variant_id, "reference_id": reference_id,
            "version": __version__, "engine_revision": revision(), "sources": records,
-           "brief": brief, "model": model, "prompt": PROMPT + brief, "created_at": now(),
+           "brief": brief, "target_context": target, "model": model,
+           "prompt": assessment_prompt(PROMPT, brief, target), "created_at": now(),
            "requests": 0, "retry": 0, "usage": None}
     atomic(directory / "run.json", run)
     try:

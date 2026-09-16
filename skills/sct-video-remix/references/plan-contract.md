@@ -22,7 +22,7 @@
   "intent": "填写本次要保留的表达机制与替换边界。",
   "product": "填写图中可见或用户确认的商品外观；不推断功效。",
   "look": "填写参考实有的光线、机位、手持和质感。",
-  "sound": "填写有无口播、原创台词、声线/语速/重音/停顿及现场声。",
+  "sound": "填写有无口播、按用户要求保留或调整的唯一台词、音色与录音听感、语流及现场声。",
   "shots": [
     {"start": 0, "end": 15,
      "action": "真实动作起因→接触/峰值→自然收尾。按素材增减镜头，不固定一镜。",
@@ -32,6 +32,7 @@
   ],
   "constraints": "必要的禁止项，不堆无关负面词。",
   "provenance": {
+    "target": "本次用户请求及已确认的保留/替换边界；不能把制作取舍反写成用户授权。",
     "analysis": "analysis/real-run/analysis.md",
     "source_interval": [0, 15],
     "audio_change": "记录是否移除/更换原音轨及原因",
@@ -48,7 +49,7 @@
 
 `shots` 用输出时间，`provenance.source_interval` 用原片时间。允许一镜连续变化或多镜，不强制三拍；镜头有序、不重叠、不超输出时长。声音可跨切镜延续，在 sound 或 sync 说明。
 
-有口播时在 `sound` 保存唯一台词正文及少量意群的近似时间/表达走势；`delivery/sync` 只接关键意思，不重复另一套台词或与全局指令相反的语气。意群独立于切镜，具体做法见 [说话表达迁移](../../sct-video-remix/references/speech.md)。`provenance` 可增加 `target`、`transfer`、`acceptance` 等短记录，解释用户目标、源证据如何进入本计划、结果该看什么；它们只帮助代理承接，不是新增格式门禁，也不会进入生成 prompt。
+有口播时在 `sound` 保存唯一台词正文及少量意群的近似时间/表达走势；`delivery/sync` 只接关键意思，不重复另一套台词或与全局指令相反的语气。意群独立于切镜，具体做法见 [说话表达迁移](../../sct-video-remix/references/speech.md)。`provenance` 可增加 `target`、`transfer`、`acceptance` 等短记录，解释用户目标、源证据如何进入本计划、结果该看什么；它们不会进入生成 prompt。`target` 是来自用户的目标，不是作者对成片的评价；`transfer` 把关键证据指到实际正文，`acceptance` 是观察问题而非已通过声明。评估会消费冻结计划的原目标，临时 `brief` 不能自行豁免。
 
 若跳删/变速，`provenance.source_to_output` 可逐段记录源区间与输出区间，供验收定位；它是制作决策的证据，不是视频模型精确时序保证，不要求简单任务补映射表。
 
