@@ -27,7 +27,7 @@
     {"start": 0, "end": 15,
      "action": "真实动作起因→接触/峰值→自然收尾。按素材增减镜头，不固定一镜。",
      "camera": "机位及真实切镜/连续运动。",
-     "delivery": "本镜台词/表达方向，无口播可省略。",
+     "delivery": "本镜承接的表达方向；不重复sound台词，无口播可省略。",
      "sync": "关键声音/动作/切镜关联；不逐词指定表情。"}
   ],
   "constraints": "必要的禁止项，不堆无关负面词。",
@@ -51,7 +51,7 @@
 
 有口播时在 `sound` 保存唯一台词正文及少量意群的近似时间/表达走势；`delivery/sync` 只接关键意思，不重复另一套台词或与全局指令相反的语气。意群独立于切镜，具体做法见 [说话表达迁移](../../sct-video-remix/references/speech.md)。`provenance` 可增加 `target`、`transfer`、`acceptance` 等短记录，解释用户目标、源证据如何进入本计划、结果该看什么；它们不会进入生成 prompt。`target` 是来自用户的目标，不是作者对成片的评价；`transfer` 把关键证据指到实际正文，`acceptance` 是观察问题而非已通过声明。评估会消费冻结计划的原目标，临时 `brief` 不能自行豁免。
 
-若跳删/变速，`provenance.source_to_output` 可逐段记录源区间与输出区间，供验收定位；它是制作决策的证据，不是视频模型精确时序保证，不要求简单任务补映射表。
+若跳删/变速，`provenance.source_to_output` 可逐段记录源区间与输出区间，供验收定位；它是制作决策的证据，不是视频模型精确时序保证，不要求简单任务补映射表。声音和画面采用不同源区间/变速时，分别记录，并在各条 `reason` 标明“声音”或“画面”；不能用视觉切点代替语音边界。`target` 只保存用户的内容目标和允许变化，不混入“本轮仅预览/尚未提交”等临时执行状态。
 
 `kind=variation` 需要已存在的 `parent` 和 `change`；`rerun` 从父版冻结的 `variants/<id>/spec.json` 复制，只改新 ID、kind、parent 和记录说明，不从制作摘要重写 prompt。新登记会核对提供方、模型、时长、比例、分辨率、有序 inputs 与完整 prompt 相同；改条件用 variation。旧 `variant` JSON 继续有效，新增计划不改变旧 v1 项目语义。保留的 `plans/<id>/plan.json` 和 `spec.json` 是可审查的交接快照。
 

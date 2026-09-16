@@ -1,6 +1,6 @@
 [project]
 name = "video-remix"
-version = "0.3.3"
+version = "0.3.4"
 description = "Reference-led video remix and variation tools for AI assistants."
 requires-python = ">=3.10"
 dependencies = []
