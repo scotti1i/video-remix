@@ -9,6 +9,7 @@ import sys
 
 from . import __version__
 from .analysis import analyze
+from .assembly import assemble
 from .compatibility import inspect
 from .creative import compile_plan
 from .dreamina import Dreamina
@@ -76,6 +77,9 @@ def parser():
     plan.add_argument("file")
     variation = sub.add_parser("vary", help="按场景/人物/穿搭控制文件派生计划和差异，不生成")
     variation.add_argument("file")
+    assembly = sub.add_parser("assemble", help="默认预览已下载镜头组装；--execute 才执行本地硬切")
+    assembly.add_argument("file")
+    assembly.add_argument("--execute", action="store_true")
     run = sub.add_parser("run", help="默认预览；--execute 才提交/恢复任务")
     run.add_argument("ids", nargs="+")
     run.add_argument("--execute", action="store_true")
@@ -120,6 +124,7 @@ def dispatch(a):
         "variant": lambda: add_variant(root, a.file),
         "compile": lambda: compile_plan(root, a.file),
         "vary": lambda: vary(root, a.file),
+        "assemble": lambda: assemble(root, a.file, a.execute),
         "run": lambda: execute(root, a.ids, a.budget, a.estimate_per_job, a.execute, a.wait),
         "attach": lambda: attach(root, a.variant, a.task_id),
         "status": lambda: status(root), "compare": lambda: compare(root),
