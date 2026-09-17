@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 
-from .assembly_media import audio_covers, command, finite, media_tools, probe
+from .assembly_media import audio_covers, command, continuous_key, finite, media_tools, probe, probe_audio
 from .runner import disk_check, revision
 from .storage import atomic, digest, locked, now, read, slug
 
@@ -26,8 +26,8 @@ def fields(value, required, optional=()):
 
 def validate_contract(value):
     fields(value, ("format", "id", "clips", "audio"))
-    if value["format"] != "video-remix-assembly.v1":
-        raise ValueError("组装合同格式必须为 video-remix-assembly.v1")
+    if value["format"] not in ("video-remix-assembly.v1", "video-remix-assembly.v2"):
+        raise ValueError("组装合同格式必须为 video-remix-assembly.v1 或 v2")
     identifier(value["id"])
     if not isinstance(value["clips"], list) or not value["clips"]:
         raise ValueError("clips 必须是非空列表")
@@ -36,16 +36,30 @@ def validate_contract(value):
         identifier(clip["variant"])
         if finite(clip["in"], "in") >= finite(clip["out"], "out", positive=True):
             raise ValueError("每段必须满足 in < out")
-    fields(value["audio"], ("mode",), ("variant", "in"))
+    validate_audio(value)
+    return value
+
+
+def validate_audio(value):
+    optional = ("variant", "in")
+    if value["format"] == "video-remix-assembly.v2":
+        optional += ("asset", "provenance")
+    fields(value["audio"], ("mode",), optional)
     audio = value["audio"]
     if audio["mode"] not in ("clips", "continuous", "silent"):
         raise ValueError("audio.mode 必须为 clips / continuous / silent")
     if audio["mode"] == "continuous":
-        identifier(audio.get("variant"))
+        chosen = [field for field in ("variant", "asset") if field in audio]
+        if len(chosen) != 1:
+            raise ValueError("continuous 必须显式选择一个 variant 或 asset，不隐式回退")
+        identifier(audio[chosen[0]])
+        if "asset" in audio or "provenance" in audio:
+            provenance = audio.get("provenance")
+            if not isinstance(provenance, str) or not 1 <= len(provenance.strip()) <= 500:
+                raise ValueError("素材声音来源必须有 1–500 字的 provenance 事实说明")
         finite(audio.get("in", 0), "audio.in")
     elif set(audio) != {"mode"}:
-        raise ValueError("只有 continuous 可以指定声音 variant / in")
-    return value
+        raise ValueError("只有 continuous 可以指定声音来源 / in / provenance")
 
 
 def inside(root, relative, file=False):
@@ -92,9 +106,11 @@ def source(root, variant, ffprobe):
 def prepare(root, contract, ffprobe):
     ids = list(dict.fromkeys(c["variant"] for c in contract["clips"]))
     audio = contract["audio"]
-    if audio["mode"] == "continuous" and audio["variant"] not in ids:
+    if audio["mode"] == "continuous" and "variant" in audio and audio["variant"] not in ids:
         ids.append(audio["variant"])
     sources = {variant: source(root, variant, ffprobe) for variant in ids}
+    if audio["mode"] == "continuous" and "asset" in audio:
+        sources[continuous_key(audio)] = asset_source(root, audio, ffprobe)
     shapes = set()
     for clip in contract["clips"]:
         media = sources[clip["variant"]]["media"]
@@ -110,8 +126,25 @@ def prepare(root, contract, ffprobe):
     expected = finite(sum(c["out"] - c["in"] for c in contract["clips"]), "总时长", positive=True)
     if audio["mode"] == "continuous":
         start = audio.get("in", 0)
-        audio_covers(sources[audio["variant"]]["media"], start, start + expected)
+        audio_covers(sources[continuous_key(audio)]["media"], start, start + expected)
     return sources, expected
+
+
+def asset_source(root, audio, ffprobe):
+    project = read(inside(root, "project.json", file=True))
+    if not isinstance(project, dict) or project.get("format") != "video-remix-project.v1":
+        raise ValueError("不支持的项目素材登记格式")
+    assets = project.get("assets")
+    asset = assets.get(audio["asset"]) if isinstance(assets, dict) else None
+    if not isinstance(asset, dict) or not isinstance(asset.get("path"), str):
+        raise ValueError("声音素材必须已登记，不能回退到同名版本或镜头原声")
+    path = inside(root, asset["path"], file=True)
+    sha = digest(path)
+    if asset.get("sha256") != sha:
+        raise ValueError("声音素材已变化或缺少登记摘要")
+    return {"asset": audio["asset"], "asset_path": str(path.relative_to(root)),
+            "asset_sha256": sha, "registered_asset": asset, "provenance": audio["provenance"],
+            "media": probe_audio(path, ffprobe)}
 
 
 def contract_hash(contract):
@@ -147,6 +180,8 @@ def assemble(root, file, execute=False):
         audio_notes = {"clips": "保留各段原声，不能保证音色连续。",
                        "continuous": "连续声音只来自显式选择的已下载生成版本。",
                        "silent": "显式去除全部音轨。"}
+        if "asset" in contract["audio"]:
+            audio_notes["continuous"] = "连续声音来自显式登记素材；in 从该音轨起点计。来源说明：" + contract["audio"]["provenance"]
         preview = {"execute": execute, "contract": contract, "sources": sources,
                    "expected_duration": expected, "fps": 30, "ffmpeg_argv": args,
                    "note": "原速硬切，30 fps 标准重采样，不做运动插帧；" + audio_notes[contract["audio"]["mode"]]}
@@ -155,7 +190,7 @@ def assemble(root, file, execute=False):
         disk_check(root)
         directory.mkdir(parents=True, exist_ok=False)
         atomic(directory / "contract.json", contract)
-        run = {**preview, "format": "video-remix-assembly-run.v1", "id": contract["id"],
+        run = {**preview, "format": contract["format"].replace("assembly.", "assembly-run."), "id": contract["id"],
                "contract_sha256": contract_hash(contract), "engine_revision": revision(),
                "status": "running", "created_at": now()}
         atomic(directory / "run.json", run)

@@ -6,9 +6,9 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from video_remix.assembly import assemble, validate_contract, verify_output
+from video_remix.assembly import assemble, contract_hash, validate_contract, verify_output
 from video_remix.cli import parser
-from video_remix.project import initialize
+from video_remix.project import add_asset, initialize
 from video_remix.storage import atomic, digest, read
 
 
@@ -19,6 +19,14 @@ def contract(mode="clips", name="cut"):
     return {"format": "video-remix-assembly.v1", "id": name,
             "clips": [{"variant": "red", "in": 0.2, "out": 0.7},
                       {"variant": "blue", "in": 0.1, "out": 0.6}], "audio": audio}
+
+
+def asset_contract(asset="red", name="asset-cut"):
+    value = contract("continuous", name)
+    value["format"] = "video-remix-assembly.v2"
+    value["audio"] = {"mode": "continuous", "asset": asset, "in": 0.1,
+                      "provenance": "测试用独立配音素材"}
+    return value
 
 
 class ContractTests(unittest.TestCase):
@@ -42,6 +50,21 @@ class ContractTests(unittest.TestCase):
         self.assertFalse(args.execute)
         self.assertTrue(parser().parse_args(["assemble", "cut.json", "--execute"]).execute)
 
+    def test_v2_requires_unambiguous_explicit_source_and_provenance(self):
+        for audio in ({"mode": "continuous", "asset": "red"},
+                      {"mode": "continuous", "asset": "red", "provenance": " "},
+                      {"mode": "continuous", "asset": "red", "variant": "red", "provenance": "来源"},
+                      {"mode": "continuous", "provenance": "来源"},
+                      {"mode": "clips", "asset": "red", "provenance": "来源"}):
+            value = asset_contract()
+            value["audio"] = audio
+            with self.subTest(audio=audio), self.assertRaises(ValueError):
+                validate_contract(value)
+        value = asset_contract()
+        value["format"] = "video-remix-assembly.v1"
+        with self.assertRaisesRegex(ValueError, "不支持的字段"):
+            validate_contract(value)
+
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "需要本地 FFmpeg")
 class AssemblyMediaTests(unittest.TestCase):
@@ -62,6 +85,11 @@ class AssemblyMediaTests(unittest.TestCase):
         subprocess.run([shutil.which("ffmpeg"), "-v", "error", "-nostdin", "-n", "-i",
                         str(cls.assets / "red.mp4"), "-c:v", "copy", "-an", str(cls.assets / "mute.mp4")],
                        check=True, capture_output=True, timeout=30)
+        for suffix in ("wav", "mp3", "m4a"):
+            subprocess.run([shutil.which("ffmpeg"), "-v", "error", "-nostdin", "-n", "-f", "lavfi",
+                            "-i", "sine=frequency=660:sample_rate=48000:duration=2",
+                            str(cls.assets / f"narration.{suffix}")],
+                           check=True, capture_output=True, timeout=30)
 
     @classmethod
     def tearDownClass(cls):
@@ -148,6 +176,127 @@ class AssemblyMediaTests(unittest.TestCase):
         self.addCleanup(shutil.rmtree, moved)
         self.root, self.file = moved, moved / "cut.json"
         self.assertTrue(self.invoke(execute=True)["reused"])
+
+    def test_legacy_completed_record_with_exact_v1_source_schema_reuses_without_render(self):
+        value = contract("continuous")
+        result = self.invoke(value, execute=True)
+        legacy = {"format": "video-remix-assembly-run.v1", "status": "completed", "id": value["id"],
+                  "contract_sha256": contract_hash(value), "output": result["output"],
+                  "output_sha256": result["output_sha256"], "sources": {}}
+        source_keys = ("variant", "task_id", "spec", "spec_path", "spec_sha256",
+                       "raw_path", "raw_sha256", "run_path")
+        media_keys = ("video_duration", "audio_duration", "audio_start", "video_start",
+                      "width", "height", "sar", "probe")
+        for name, source in result["sources"].items():
+            legacy["sources"][name] = {key: source[key] for key in source_keys}
+            legacy["sources"][name]["media"] = {key: source["media"][key] for key in media_keys}
+        path = self.root / "assemblies/cut/run.json"
+        atomic(path, legacy)
+        before = path.read_bytes()
+        with patch("video_remix.assembly.render") as render:
+            self.assertTrue(self.invoke(value, execute=True)["reused"])
+        render.assert_not_called()
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_registered_audio_formats_render_and_same_name_variant_stays_separate(self):
+        for suffix in ("wav", "mp3", "m4a"):
+            asset_id = "red" if suffix == "wav" else suffix
+            asset = add_asset(self.root, asset_id, self.assets / f"narration.{suffix}", "voiceover")
+            value = asset_contract(asset_id, name=f"audio-{suffix}")
+            result = self.invoke(value, execute=True)
+            self.assertEqual(result["format"], "video-remix-assembly-run.v2")
+            source = result["sources"][f"asset:{asset_id}"]
+            self.assertNotIn("task_id", source)
+            self.assertNotIn("spec", source)
+            self.assertEqual(source["asset_sha256"], asset["sha256"])
+            self.assertEqual(source["provenance"], value["audio"]["provenance"])
+            self.assertEqual(source["media"]["time_origin"], "first_audio_sample")
+            self.assertEqual(result["sources"]["red"]["task_id"], "task-red")
+            self.assertIn(str(self.root / asset["path"]), result["ffmpeg_argv"])
+            self.assert_audio_frequency(self.root / result["output"], 0.1, 660)
+            self.assert_audio_frequency(self.root / result["output"], 0.7, 660)
+            self.assertTrue(self.invoke(value, execute=True)["reused"])
+
+    def test_registered_video_audio_is_explicitly_used(self):
+        add_asset(self.root, "voice-track", self.assets / "voice.mp4", "reference")
+        value = asset_contract("voice-track")
+        value["audio"]["provenance"] = "源视频音轨，显式保留原声"
+        result = self.invoke(value, execute=True)
+        self.assert_audio_frequency(self.root / result["output"], 0.7, 220)
+
+    def test_delayed_audio_asset_uses_audio_origin_but_variant_rejects_misalignment(self):
+        delayed = self.root / "delayed-audio.mp4"
+        subprocess.run([shutil.which("ffmpeg"), "-v", "error", "-nostdin", "-n",
+                        "-i", str(self.assets / "voice.mp4"), "-itsoffset", "0.25",
+                        "-i", str(self.assets / "narration.wav"), "-map", "0:v:0", "-map", "1:a:0",
+                        "-c:v", "copy", "-c:a", "aac", str(delayed)],
+                       check=True, capture_output=True, timeout=30)
+        from video_remix.assembly_media import probe
+        media = probe(delayed, shutil.which("ffprobe"))
+        self.assertGreater(media["audio_start"] - media["video_start"], 0.1)
+        variant = self.root / "variants/voice"
+        shutil.copyfile(delayed, variant / "raw.mp4")
+        run = read(variant / "run.json")
+        run["output_sha256"] = digest(variant / "raw.mp4")
+        atomic(variant / "run.json", run)
+        with self.assertRaisesRegex(ValueError, "音轨与视频起点不同"):
+            self.invoke(contract("continuous"), execute=True)
+        add_asset(self.root, "delayed", delayed, "voiceover")
+        value = asset_contract("delayed")
+        value["audio"]["in"] = 0
+        result = self.invoke(value, execute=True)
+        self.assertEqual(result["sources"]["asset:delayed"]["media"]["time_origin"], "first_audio_sample")
+        self.assertAlmostEqual(result["actual_audio_duration"], 1, delta=0.04)
+        self.assert_audio_frequency(self.root / result["output"], 0.02, 660)
+        self.assert_audio_frequency(self.root / result["output"], 0.7, 660)
+
+    def test_v2_variant_source_still_works(self):
+        value = contract("continuous")
+        value["format"] = "video-remix-assembly.v2"
+        result = self.invoke(value, execute=True)
+        self.assert_audio_frequency(self.root / result["output"], 0.7, 220)
+
+    def test_missing_or_silent_asset_never_falls_back_to_variant_sound(self):
+        value = asset_contract("red")
+        with self.assertRaisesRegex(ValueError, "必须已登记"):
+            self.invoke(value, execute=True)
+        add_asset(self.root, "red", self.assets / "mute.mp4", "reference")
+        with self.assertRaisesRegex(ValueError, "没有音轨"):
+            self.invoke(value, execute=True)
+        self.assertFalse((self.root / "assemblies").exists())
+
+    def test_asset_bounds_changes_and_escaped_registration_are_rejected(self):
+        asset = add_asset(self.root, "red", self.assets / "narration.wav", "voiceover")
+        value = asset_contract()
+        value["audio"]["in"] = 1.1
+        with self.assertRaisesRegex(ValueError, "不足以覆盖"):
+            self.invoke(value)
+        value["audio"]["in"] = 0.1
+        self.invoke(value, execute=True)
+        path = self.root / asset["path"]
+        original = path.read_bytes()
+        path.write_bytes(b"tampered")
+        with self.assertRaisesRegex(ValueError, "素材已变化"):
+            self.invoke(value, execute=True)
+        path.write_bytes(original)
+        project = read(self.root / "project.json")
+        project["assets"]["red"]["path"] = str(self.assets / "narration.wav")
+        atomic(self.root / "project.json", project)
+        with self.assertRaisesRegex(ValueError, "逃逸"):
+            self.invoke(value)
+
+    def test_changed_asset_registration_and_provenance_do_not_reuse_completed_output(self):
+        add_asset(self.root, "red", self.assets / "narration.wav", "voiceover")
+        value = asset_contract()
+        self.invoke(value, execute=True)
+        value["audio"]["provenance"] = "变更了来源说明"
+        with self.assertRaisesRegex(ValueError, "合同不同"):
+            self.invoke(value, execute=True)
+        project = read(self.root / "project.json")
+        project["assets"]["red"]["role"] = "reference"
+        atomic(self.root / "project.json", project)
+        with self.assertRaisesRegex(ValueError, "来源证据已变化"):
+            self.invoke(asset_contract(), execute=True)
 
     def test_real_cut_order_uses_selected_frames(self):
         result = self.invoke(contract("silent"), execute=True)

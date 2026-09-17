@@ -29,7 +29,7 @@ def duration(stream):
         raise ValueError("无法确认媒体流的有限正时长") from None
 
 
-def probe(path, executable):
+def probe_data(path, executable):
     result = subprocess.run([executable, "-v", "error", "-show_streams", "-show_format",
                              "-of", "json", str(path)], capture_output=True, text=True, timeout=60)
     if result.returncode:
@@ -37,6 +37,11 @@ def probe(path, executable):
     data = json.loads(result.stdout)
     if "filename" in data.get("format", {}):
         data["format"]["filename"] = Path(path).name
+    return data
+
+
+def probe(path, executable):
+    data = probe_data(path, executable)
     video = next((s for s in data.get("streams", []) if s.get("codec_type") == "video"), None)
     audio = next((s for s in data.get("streams", []) if s.get("codec_type") == "audio"), None)
     if not video or not video.get("width") or not video.get("height"):
@@ -52,13 +57,29 @@ def probe(path, executable):
             "sar": video.get("sample_aspect_ratio", "1:1"), "probe": data}
 
 
+def probe_audio(path, executable):
+    data = probe_data(path, executable)
+    audio = next((s for s in data.get("streams", []) if s.get("codec_type") == "audio"), None)
+    if not audio:
+        raise ValueError("所选素材没有音轨，不能回退到镜头原声")
+    start = float(audio.get("start_time", 0))
+    if not math.isfinite(start):
+        raise ValueError("无法确认素材音轨起点")
+    return {"audio_duration": duration(audio), "audio_start": start, "probe": data,
+            "time_origin": "first_audio_sample"}
+
+
+def continuous_key(audio):
+    return f"asset:{audio['asset']}" if "asset" in audio else audio["variant"]
+
+
 def audio_covers(media, start, end):
     if media["audio_duration"] is None:
         raise ValueError("所选声音来源没有音轨")
-    # 不补静音、不平移有延迟的音轨；只支持与视频起点对齐的原始流。
-    if not math.isfinite(media["audio_start"]) or not math.isfinite(media["video_start"]):
+    # 旧生成原片仍要求声画起点对齐；独立素材的区间以音轨起点计，不补静音。
+    if not math.isfinite(media["audio_start"]) or not math.isfinite(media.get("video_start", media["audio_start"])):
         raise ValueError("无法确认声画起点")
-    if abs(media["audio_start"] - media["video_start"]) > 0.001:
+    if abs(media["audio_start"] - media.get("video_start", media["audio_start"])) > 0.001:
         raise ValueError("音轨与视频起点不同，不能自动修正声音时序")
     if end > media["audio_duration"] or start >= end:
         raise ValueError("音轨不足以覆盖所选区间；不自动补声或拉长")
@@ -68,7 +89,7 @@ def command(root, contract, sources, executable, output):
     ids = list(sources)
     args = [executable, "-hide_banner", "-nostdin", "-n"]
     for source in sources.values():
-        args.extend(["-i", str(root / source["raw_path"])])
+        args.extend(["-i", str(root / (source["asset_path"] if "asset" in source else source["raw_path"]))])
     filters, video_labels, audio_labels = [], [], []
     for index, clip in enumerate(contract["clips"]):
         source = ids.index(clip["variant"])
@@ -98,6 +119,6 @@ def add_audio_filter(contract, ids, labels, filters):
     if audio["mode"] == "continuous":
         start = audio.get("in", 0)
         end = start + sum(c["out"] - c["in"] for c in contract["clips"])
-        index = ids.index(audio["variant"])
+        index = ids.index(continuous_key(audio))
         filters.append(f"[{index}:a:0]asetpts=PTS-STARTPTS,atrim=start={start}:end={end},"
                        "asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo[a]")

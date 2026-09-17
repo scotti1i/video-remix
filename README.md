@@ -155,7 +155,7 @@ my-product/
 
 ## 开发与发布边界
 
-候选新增 `assemble <assembly.json>`（默认预览，`--execute`本地执行）。按原片真实镜头独立使用既有 `compile/run`，然后以 `video-remix-assembly.v1` 指定各版本取用区间和声音方式；只硬切、原速、同分辨率，保留每镜原片与任务记录。支持各镜自带声、明确连续生成音轨或静音；没有自动配音、声纹匹配、词级对齐或连续长镜头续接。见[分镜路线](skills/sct-video-remix/references/shot-generation.md)。单镜返修通过新版本与新组装ID，不重生其他好镜头。此软件能力不等于已经验证形变率下降。
+候选新增 `assemble <assembly.json>`（默认预览，`--execute`本地执行）。按原片真实镜头独立使用既有 `compile/run`，组装合同指定各版本取用区间和声音方式；只硬切、原速、同分辨率，保留每镜原片与任务记录。支持各镜自带声、明确连续音轨或静音；`video-remix-assembly.v1` 连续声音来自本项目生成版本，v2 另支持已登记音频/视频素材并记录来源，不改变旧合同语义。没有自动配音、声纹匹配、词级对齐或连续长镜头续接。见[分镜路线](skills/sct-video-remix/references/shot-generation.md)。单镜返修通过新版本与新组装ID，不重生其他好镜头。此软件能力不等于已经验证形变率下降或声音生成更自然。
 
 本地开发候选增加 `python3 -m video_remix inventory --root /absolute/project-collection`，只读列出各项目的任务、实际记录费用与本地原片；保留失败、状态冲突和未知费用，不调用平台、不升级旧项目。它用于核对跨批交付遗漏，不代表成片或客户验收。实验迭代方法见 [实验迭代](skills/sct-video-remix/references/iteration.md)；候选制作修改仍需真实成片验证，未发布为新的效果升级版本。
 

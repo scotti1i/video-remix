@@ -114,7 +114,7 @@ Gemini 分析真实调用：
 --project <目录> assemble /absolute/assembly.json --execute
 ```
 
-默认只读预览；执行仅本地FFmpeg原速硬切组装，不发生成请求。合同格式为独立的 `video-remix-assembly.v1`，结果在 `assemblies/<id>/`，各镜原始视频仍在 `variants/`；连续音轨/每段原声/静音由合同明确选择。具体字段、支持边界及声音条件见分镜指导。新组合使用新ID，不能覆盖旧组装冒充原始成片。
+默认只读预览；执行仅本地FFmpeg原速硬切组装，不发生成请求。独立合同 `video-remix-assembly.v1` 保留原行为，v2 另支持通过 `asset` 登记的独立音频或视频音轨；结果在 `assemblies/<id>/`，各镜原始视频仍在 `variants/`。连续音轨/每段原声/静音由合同明确选择。具体字段、支持边界及声音条件见分镜指导。新组合使用新ID，不能覆盖旧组装冒充原始成片。
 
 ```sh
 --project <目录> status
