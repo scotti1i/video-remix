@@ -111,6 +111,26 @@ class ProductionJobTests(unittest.TestCase):
         self.assertEqual(digest(output), before)
         self.assertEqual(result["assembly"]["frame_grid"]["actual_frames"], 120)
 
+    def test_execute_receipt_is_compact_but_full_evidence_remains(self):
+        result = self.invoke()
+        task = result["generation"]["results"][0]
+        self.assertEqual(task["task_id"], "task-1")
+        self.assertNotIn("prompt", task)
+        self.assertNotIn("output_probe", result["assembly"])
+        saved = read(self.root / "productions/film/run.json")
+        self.assertIn("prompt", saved["generation"]["results"][0])
+        self.assertIn("output_probe", saved["assembly"])
+        self.assertEqual(saved["assembly"]["output_sha256"], result["assembly"]["output_sha256"])
+
+    def test_pending_receipt_keeps_recovery_id_and_actual_cost(self):
+        self.provider.status = "generating"
+        result = self.invoke()
+        self.assertEqual(result["status"], "pending")
+        self.assertEqual(result["generation"]["results"][0]["credits"], 24)
+        self.assertEqual(result["generation"]["results"][0]["task_id"], "task-1")
+        self.assertIn("resume", result)
+        self.assertIn("run", result)
+
     def test_budget_counts_previously_submitted_and_cannot_be_silently_raised(self):
         self.job["budget"] = 24
         result = self.invoke()

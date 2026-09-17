@@ -93,6 +93,24 @@ def check_ready_sources(root, contract):
     validate_sources(contract, sources, partial=True)
 
 
+def receipt(state):
+    """恢复回执只传调度所需字段；完整prompt、probe和来源仍在run.json。"""
+    fields = ("format", "id", "status", "output", "run", "notice", "resume",
+              "created_at", "checked_at", "finished_at", "engine_revision")
+    result = {key: state[key] for key in fields if key in state}
+    generation = state.get("generation", {})
+    result["generation"] = {key: generation[key] for key in ("new_credits", "stop") if key in generation}
+    task_fields = ("variant", "phase", "task_id", "credits", "estimated_credits", "submit_attempts")
+    result["generation"]["results"] = [
+        {key: task[key] for key in task_fields if key in task}
+        for task in generation.get("results", [])]
+    if "assembly" in state:
+        assembly_fields = ("id", "status", "output", "output_sha256", "actual_duration",
+                           "actual_audio_duration", "frame_grid", "reused")
+        result["assembly"] = {key: state["assembly"][key] for key in assembly_fields if key in state["assembly"]}
+    return result
+
+
 def produce(root, file, execute=False, wait=0, provider=None):
     root = Path(root).resolve()
     if type(wait) is not int or not 0 <= wait <= 60:
@@ -116,7 +134,7 @@ def produce(root, file, execute=False, wait=0, provider=None):
                      "job_sha256": contract_hash(frozen), "variants": ids}
             atomic(directory / "job.json", frozen)
             atomic(directory / "run.json", state)
-        return advance(root, directory, job, state, wait, provider)
+        return receipt(advance(root, directory, job, state, wait, provider))
 
 
 def advance(root, directory, job, state, wait, provider):
