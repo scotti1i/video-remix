@@ -16,7 +16,7 @@ Skill 已更名为 `sct-video-remix`。安装器接受旧目录名称并迁移�
 
 ## 1. 项目与参考
 
-开始制作、复刻或裂变时完整读取 [制作方法](../../sct-video-remix/references/production.md)。使用 `compile` 或 `vary` 时读取 [制作计划合同](../../sct-video-remix/references/plan-contract.md)；有口播按制作方法路由读说话指导。链接兼容新旧 Skill 路径。故障查询和单纯下载不必重新分析素材。当前工作指导与后端为 0.3.9；旧项目升级前继续遵守其固定版。
+开始制作、复刻或裂变时完整读取 [制作方法](../../sct-video-remix/references/production.md)。使用 `compile`、`vary` 或 `vary-assembly` 时读取 [制作计划合同](../../sct-video-remix/references/plan-contract.md)；有口播按制作方法路由读说话指导。链接兼容新旧 Skill 路径。故障查询和单纯下载不必重新分析素材。当前工作指导与后端为 0.3.9；旧项目升级前继续遵守其固定版。
 
 ```sh
 init <用户项目目录> --name "商品前后对比"
@@ -85,6 +85,8 @@ Gemini 分析真实调用：
 控制文件指定父计划、新 ID、不可变的商品素材和 scene/person/outfit 文字/图片替换。`vary` 原样继承父版声画时间、声音内容、输入模式和生成参数，保存计划/规格、控制快照与前后差异；不自动生图、不调用 Gemini、不提交即梦。检查差异与新素材后，用下一节的同一 `run` 命令按已有预算生成。软件保证替换边界，模型是否保持核心机制仍需看真实成片。
 
 0.3.8 起图片替换可显式附带新的 `role`，同步更新实际提示词中的图片说明；不填写时仍保留原角色。换图不等于换人已经成功，输入角色和画面本身都需与制作意图一致。
+
+开发候选的 `vary-assembly /absolute/film-control.json` 默认只读预览，`--execute` 才复用同一受控裂变逻辑登记指定镜头，并输出 `assembly-variations/<新ID>/assembly.json`。它从明确父组装合同逐镜派生，保留取用区间、顺序和声音合同；没改的镜头沿用原版本，也可显式接入已登记的局部返修版本。不会生图、生成或拼视频。字段及失败恢复见[整片裂变与局部替换](plan-contract.md#整片裂变与局部替换)。待新镜头按既有 `run` 下载后，再将输出合同交给 `assemble`；旧固定后端无此入口时不强行调用。
 
 ## 3. 提交与恢复
 

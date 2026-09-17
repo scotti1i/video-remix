@@ -2,8 +2,8 @@
 
 from collections import Counter
 
-from .project import add_variant, validate_rerun, validate_spec
-from .storage import atomic, read, slug
+from .project import validate_rerun, validate_spec
+from .storage import atomic, locked, read, slug
 
 
 MODES = {"image_text", "image_audio", "video_reference"}
@@ -75,6 +75,11 @@ def compile_plan(root, file):
 
 def store_plan(root, plan, artifacts=None):
     # 编译和受控裂变共用同一保存入口；额外证据不进入生成规格。
+    with locked(root / ".project.lock"):
+        return save_plan(root, plan, artifacts)
+
+
+def save_plan(root, plan, artifacts):
     spec = assemble(plan)
     validate_spec(spec, root)
     validate_rerun(spec, root)
@@ -86,6 +91,7 @@ def store_plan(root, plan, artifacts=None):
     atomic(target / "spec.json", spec)
     for name, data in (artifacts or {}).items():
         atomic(target / name, data)
-    result = add_variant(root, target / "spec.json")
-    return {**result, "plan": str(target / "plan.json"),
+    destination = root / "variants" / spec["id"] / "spec.json"
+    atomic(destination, spec)
+    return {"variant": spec["id"], "spec": str(destination), "plan": str(target / "plan.json"),
             "note": "原文装配，无二次改写；未提交生成"}

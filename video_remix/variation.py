@@ -29,9 +29,9 @@ def validate_control(control, base):
         raise ValueError("填写要保留的参考核心机制")
     protected = core["product_assets"]
     actual = {item["asset"] for item in base["inputs"] if item["type"] == "image"}
-    if not isinstance(protected, list) or not protected or any(
+    if not isinstance(protected, list) or any(
             not isinstance(asset, str) or asset not in actual for asset in protected):
-        raise ValueError("product_assets 必须列出父计划实际使用的商品图片素材 ID")
+        raise ValueError("product_assets 必须是父计划图片素材 ID 列表；无独立商品图时显式填 []")
     slots = control["slots"]
     if not isinstance(slots, dict) or not slots or set(slots) - SLOTS:
         raise ValueError("slots 只允许 scene / person / outfit，至少修改一项")
@@ -119,8 +119,8 @@ def differences(before, after, path=""):
     return [] if before == after else [{"path": path, "before": before, "after": after}]
 
 
-def vary(root, file):
-    control = read(file)
+def prepare_variation(root, control):
+    """只读派生，供单镜与整片裂变共用；不登记或提交任务。"""
     if not isinstance(control, dict):
         raise ValueError("裂变控制必须是 JSON 对象")
     parent = slug(control.get("parent", ""))
@@ -145,7 +145,15 @@ def vary(root, file):
               "parent_plan_sha256": digest(source), "frozen_core": control["frozen_core"],
               "changes": changes,
               "note": "仅证明指定字段替换，其余计划保留；不证明描述/图片无语义冲突或模型效果合格"}
+    if not control["frozen_core"]["product_assets"]:
+        report["note"] += "。本次未锁定商品图片；商品文字仍冻结，换图后的商品一致性未被验证"
+    return child, report
+
+
+def vary(root, file):
+    control = read(file)
+    child, report = prepare_variation(root, control)
     result = store_plan(root, child, {"variation.json": control, "diff.json": report})
     directory = root / "plans" / child["id"]
     return {**result, "diff": str(directory / "diff.json"),
-            "control": str(directory / "variation.json"), "changes": changes}
+            "control": str(directory / "variation.json"), "changes": report["changes"]}

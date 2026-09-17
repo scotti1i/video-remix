@@ -10,6 +10,7 @@ import sys
 from . import __version__
 from .analysis import analyze
 from .assembly import assemble
+from .assembly_variation import vary_assembly
 from .compatibility import inspect
 from .creative import compile_plan
 from .dreamina import Dreamina
@@ -77,6 +78,9 @@ def parser():
     plan.add_argument("file")
     variation = sub.add_parser("vary", help="按场景/人物/穿搭控制文件派生计划和差异，不生成")
     variation.add_argument("file")
+    film_variation = sub.add_parser("vary-assembly", help="只读预览整片逐镜裂变；--execute 登记计划和新组装合同，不生成")
+    film_variation.add_argument("file")
+    film_variation.add_argument("--execute", action="store_true")
     assembly = sub.add_parser("assemble", help="默认预览已下载镜头组装；--execute 才执行本地硬切")
     assembly.add_argument("file")
     assembly.add_argument("--execute", action="store_true")
@@ -124,6 +128,7 @@ def dispatch(a):
         "variant": lambda: add_variant(root, a.file),
         "compile": lambda: compile_plan(root, a.file),
         "vary": lambda: vary(root, a.file),
+        "vary-assembly": lambda: vary_assembly(root, a.file, a.execute),
         "assemble": lambda: assemble(root, a.file, a.execute),
         "run": lambda: execute(root, a.ids, a.budget, a.estimate_per_job, a.execute, a.wait),
         "attach": lambda: attach(root, a.variant, a.task_id),

@@ -124,6 +124,51 @@ class VariationTests(unittest.TestCase):
             self.run_control()
         self.assert_no_child()
 
+    def test_state_only_shot_can_replace_both_images_without_adding_product_image(self):
+        for asset in ("clear", "dark", "new-clear", "new-dark"):
+            add_asset(self.root, asset, Path(self.temp.name) / "source.png", asset)
+        base = copy.deepcopy(self.base)
+        base.update(id="pov", product="Black auto-darkening goggles; nose support and inner lens remain unchanged.")
+        base["inputs"] = [{"type": "image", "asset": "clear", "role": "close POV clear state"},
+                          {"type": "image", "asset": "dark", "role": "same POV dark state"}]
+        atomic(self.base_file, base)
+        compile_plan(self.root, self.base_file)
+        control = copy.deepcopy(self.control)
+        control.update(parent="pov", frozen_core={"mechanism": "Arc triggers darkening, stops and recovers.",
+                                                   "product_assets": []})
+        control["slots"]["scene"]["images"] = [
+            {"from": "clear", "to": "new-clear"}, {"from": "dark", "to": "new-dark"}]
+        result = self.run_control(control)
+        child = read(result["plan"])
+        self.assertEqual([entry["asset"] for entry in child["inputs"]], ["new-clear", "new-dark"])
+        for field in ("product", "intent", "sound", "duration", "mode", "provenance"):
+            self.assertEqual(child[field], base[field])
+        self.assertEqual(read(result["diff"])["frozen_core"]["product_assets"], [])
+        self.assertIn("商品一致性未被验证", read(result["diff"])["note"])
+        self.assertEqual(read(self.root / "plans/pov/plan.json"), base)
+
+    def test_empty_protected_images_do_not_unlock_product_text_or_missing_assets(self):
+        self.control["frozen_core"]["product_assets"] = []
+        for path in ("product", "intent", "sound", "duration", "shots.0.start"):
+            self.control["slots"] = {"scene": {"text": [{"path": path, "from": "old", "to": "new"}]}}
+            with self.subTest(path=path), self.assertRaisesRegex(ValueError, "只允许替换"):
+                self.run_control()
+            self.assert_no_child()
+        self.control["slots"] = {"scene": {"images": [{"from": "anchor", "to": "missing"}]}}
+        with self.assertRaisesRegex(ValueError, "已登记"):
+            self.run_control()
+        self.assert_no_child()
+
+    def test_protected_images_require_explicit_list_of_actual_image_ids(self):
+        for value in (None, "", "product", ["unknown"], [False]):
+            self.control["frozen_core"]["product_assets"] = value
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "product_assets"):
+                self.run_control()
+            self.assert_no_child()
+        del self.control["frozen_core"]["product_assets"]
+        with self.assertRaisesRegex(ValueError, "product_assets"):
+            self.run_control()
+
     def test_frozen_fields_cannot_be_replaced(self):
         for path in ("sound", "intent", "product", "duration", "mode", "inputs.0.type",
                      "shots.0.start", "shots.0.sync", "shots.1.delivery", "provenance.source_to_output"):
