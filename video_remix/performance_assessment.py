@@ -98,6 +98,7 @@ def assess_performance(root, variant_id, reference_id, brief, model, video_fps=N
                 "assessment": str(report), "notice": NOTICE}
     except Exception as error:
         reason = str(error).replace(key, "[REDACTED]")
-        run.update(status="failed", error_type=type(error).__name__, error_reason=reason, finished_at=now())
+        run.update(status="incomplete" if run.get("status") == "incomplete" else "failed",
+                   error_type=type(error).__name__, error_reason=reason, finished_at=now())
         atomic(directory / "run.json", run)
         raise RuntimeError(f"视频对照失败：{reason}；已有证据：{directory}") from None

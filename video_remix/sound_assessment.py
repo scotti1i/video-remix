@@ -130,6 +130,7 @@ def assess(root, variant_id, reference_id, focus, brief, model):
                 "assessment": str(report), "diagnostics": str(directory), "notice": NOTICE}
     except Exception as error:
         reason = str(error).replace(key, "[REDACTED]")
-        run.update(status="failed", error_type=type(error).__name__, error_reason=reason, finished_at=now())
+        run.update(status="incomplete" if run.get("status") == "incomplete" else "failed",
+                   error_type=type(error).__name__, error_reason=reason, finished_at=now())
         atomic(directory / "run.json", run)
         raise RuntimeError(f"声音评审失败：{reason}；诊断与已有证据：{directory}") from None
