@@ -6,7 +6,8 @@ import os
 from pathlib import Path
 import subprocess
 
-from .assembly_media import audio_covers, command, continuous_key, finite, media_tools, probe, probe_audio
+from .assembly_media import (audio_covers, command, continuous_key, decoded_frames, finite,
+                             frame_grid, media_tools, probe, probe_audio)
 from .runner import disk_check, revision
 from .storage import atomic, digest, locked, now, read, slug
 
@@ -176,14 +177,15 @@ def assemble(root, file, execute=False):
         directory = inside(root, f"assemblies/{contract['id']}")
         if directory.exists():
             return {**completed(root, directory, contract, sources), "execute": execute}
-        args = command(root, contract, sources, tools["ffmpeg"], directory / "partial.mp4")
+        grid = frame_grid(contract, sources)
+        args = command(root, contract, sources, tools["ffmpeg"], directory / "partial.mp4", grid)
         audio_notes = {"clips": "保留各段原声，不能保证音色连续。",
                        "continuous": "连续声音只来自显式选择的已下载生成版本。",
                        "silent": "显式去除全部音轨。"}
         if "asset" in contract["audio"]:
             audio_notes["continuous"] = "连续声音来自显式登记素材；in 从该音轨起点计。来源说明：" + contract["audio"]["provenance"]
         preview = {"execute": execute, "contract": contract, "sources": sources,
-                   "expected_duration": expected, "fps": 30, "ffmpeg_argv": args,
+                   "expected_duration": expected, "fps": 30, "ffmpeg_argv": args, "frame_grid": grid,
                    "note": "原速硬切，30 fps 标准重采样，不做运动插帧；" + audio_notes[contract["audio"]["mode"]]}
         if not execute:
             return preview
@@ -205,7 +207,8 @@ def render(root, directory, contract, sources, run, tools):
         if process.returncode:
             raise RuntimeError("FFmpeg 组装失败，诊断和未完成文件已保留")
         result = probe(directory / "partial.mp4", tools["ffprobe"])
-        verify_output(result, contract, sources, run["expected_duration"])
+        result["decoded_frames"] = decoded_frames(directory / "partial.mp4", tools["ffprobe"])
+        verify_output(result, contract, sources, run["expected_duration"], run["frame_grid"])
         # 编码期间也核对原片和规格；变化时不能发布混合来源的结果。
         current, _ = prepare(root, contract, tools["ffprobe"])
         if current != sources:
@@ -217,6 +220,7 @@ def render(root, directory, contract, sources, run, tools):
         run.update(status="completed", completed_at=now(), output=str(output.relative_to(root)),
                    output_sha256=digest(output), actual_duration=result["video_duration"],
                    actual_audio_duration=result["audio_duration"], output_probe=result["probe"])
+        run["frame_grid"].update(verified=True, actual_frames=result["decoded_frames"])
         atomic(directory / "run.json", run)
         return run
     except Exception as error:
@@ -225,7 +229,12 @@ def render(root, directory, contract, sources, run, tools):
         raise
 
 
-def verify_output(result, contract, sources, expected):
+def verify_output(result, contract, sources, expected, grid=None):
+    if grid is not None:
+        if result.get("decoded_frames") != grid["expected_frames"]:
+            raise ValueError("实际解码帧数不符，可能源画面不足；保留未完成输出，不补尾帧")
+        if abs(result["video_duration"] - grid["video_duration"]) > 0.00001:
+            raise ValueError("输出时间戳不符合 30 帧栅格")
     video_tolerance = len(contract["clips"]) / 30 + 0.001
     if abs(result["video_duration"] - expected) > video_tolerance:
         raise ValueError("实际视频时长偏离合同，保留未完成输出")

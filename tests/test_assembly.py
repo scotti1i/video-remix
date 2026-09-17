@@ -194,7 +194,9 @@ class AssemblyMediaTests(unittest.TestCase):
         atomic(path, legacy)
         before = path.read_bytes()
         with patch("video_remix.assembly.render") as render:
-            self.assertTrue(self.invoke(value, execute=True)["reused"])
+            reused = self.invoke(value, execute=True)
+            self.assertTrue(reused["reused"])
+            self.assertNotIn("frame_grid", reused)
         render.assert_not_called()
         self.assertEqual(path.read_bytes(), before)
 
@@ -216,6 +218,22 @@ class AssemblyMediaTests(unittest.TestCase):
             self.assert_audio_frequency(self.root / result["output"], 0.1, 660)
             self.assert_audio_frequency(self.root / result["output"], 0.7, 660)
             self.assertTrue(self.invoke(value, execute=True)["reused"])
+
+    def test_legacy_v2_asset_completion_reuses_without_new_precision_claim(self):
+        add_asset(self.root, "red", self.assets / "narration.wav", "voiceover")
+        value = asset_contract()
+        result = self.invoke(value, execute=True)
+        result.pop("frame_grid")
+        path = self.root / "assemblies/asset-cut/run.json"
+        atomic(path, result)
+        before = path.read_bytes()
+        with patch("video_remix.assembly.frame_grid") as quantize, patch("video_remix.assembly.render") as render:
+            reused = self.invoke(value, execute=True)
+        self.assertTrue(reused["reused"])
+        self.assertNotIn("frame_grid", reused)
+        self.assertEqual(path.read_bytes(), before)
+        quantize.assert_not_called()
+        render.assert_not_called()
 
     def test_registered_video_audio_is_explicitly_used(self):
         add_asset(self.root, "voice-track", self.assets / "voice.mp4", "reference")

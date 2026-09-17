@@ -2,6 +2,7 @@
 
 import json
 import math
+from fractions import Fraction
 from pathlib import Path
 import shutil
 import subprocess
@@ -73,6 +74,47 @@ def continuous_key(audio):
     return f"asset:{audio['asset']}" if "asset" in audio else audio["variant"]
 
 
+def frame_number(seconds):
+    frames = Fraction(str(seconds)) * 30
+    return (2 * frames.numerator + frames.denominator) // (2 * frames.denominator)
+
+
+def frame_grid(contract, sources):
+    elapsed, previous, clips = Fraction(0), 0, []
+    for clip in contract["clips"]:
+        elapsed += Fraction(str(clip["out"])) - Fraction(str(clip["in"]))
+        boundary = frame_number(elapsed)
+        count = boundary - previous
+        start = frame_number(clip["in"])
+        available = frame_number(sources[clip["variant"]]["media"]["video_duration"])
+        if count < 1 or start + count > available:
+            raise ValueError("30 帧量化后的区间没有足够源画面，不补尾帧；请调整取用区间")
+        clips.append({"variant": clip["variant"], "source_start_frame": start,
+                      "source_end_frame": start + count, "frames": count,
+                      "source_in_seconds": start / 30, "source_out_seconds": (start + count) / 30,
+                      "output_start_frame": previous, "output_end_frame": boundary})
+        previous = boundary
+    return {"format": "video-remix-frame-grid.v1", "fps": 30,
+            "rounding": "nearest_half_up_cumulative", "expected_frames": previous,
+            "requested_duration": float(elapsed), "video_duration": previous / 30,
+            "audio_timing": "original_contract_seconds", "clips": clips}
+
+
+def decoded_frames(path, executable):
+    result = subprocess.run([executable, "-v", "error", "-select_streams", "v:0", "-count_frames",
+                             "-show_entries", "stream=nb_read_frames", "-of", "json", str(path)],
+                            capture_output=True, text=True, timeout=3600)
+    if result.returncode:
+        raise ValueError("输出无法完整解码计帧，拒绝发布")
+    try:
+        count = int(json.loads(result.stdout)["streams"][0]["nb_read_frames"])
+    except (ValueError, KeyError, IndexError, TypeError):
+        raise ValueError("输出缺少可验证的解码帧数") from None
+    if count < 1:
+        raise ValueError("输出没有解码视频帧")
+    return count
+
+
 def audio_covers(media, start, end):
     if media["audio_duration"] is None:
         raise ValueError("所选声音来源没有音轨")
@@ -85,7 +127,7 @@ def audio_covers(media, start, end):
         raise ValueError("音轨不足以覆盖所选区间；不自动补声或拉长")
 
 
-def command(root, contract, sources, executable, output):
+def command(root, contract, sources, executable, output, grid):
     ids = list(sources)
     args = [executable, "-hide_banner", "-nostdin", "-n"]
     for source in sources.values():
@@ -94,17 +136,20 @@ def command(root, contract, sources, executable, output):
     for index, clip in enumerate(contract["clips"]):
         source = ids.index(clip["variant"])
         span = f"start={clip['in']}:end={clip['out']}"
-        filters.append(f"[{source}:v:0]setpts=PTS-STARTPTS,trim={span},setpts=PTS-STARTPTS,"
-                       f"fps=30[v{index}]")
+        frames = grid["clips"][index]
+        filters.append(f"[{source}:v:0]setpts=PTS-STARTPTS,fps=30:round=near:eof_action=round,"
+                       f"trim=start_frame={frames['source_start_frame']}:end_frame={frames['source_end_frame']},"
+                       f"setpts=PTS-STARTPTS[v{index}]")
         video_labels.append(f"[v{index}]")
         if contract["audio"]["mode"] == "clips":
             filters.append(f"[{source}:a:0]asetpts=PTS-STARTPTS,atrim={span},asetpts=PTS-STARTPTS,"
                            f"aresample=48000,aformat=channel_layouts=stereo[a{index}]")
             audio_labels.append(f"[a{index}]")
-    filters.append("".join(video_labels) + f"concat=n={len(video_labels)}:v=1:a=0[v]")
+    # concat 无法从单帧片段估算时长；已量化帧按序写回统一时间戳，不增删帧。
+    filters.append("".join(video_labels) + f"concat=n={len(video_labels)}:v=1:a=0,settb=1/30,setpts=N[v]")
     add_audio_filter(contract, ids, audio_labels, filters)
     args.extend(["-filter_complex", ";".join(filters), "-map", "[v]", "-c:v", "libx264",
-                 "-pix_fmt", "yuv420p", "-r", "30"])
+                 "-pix_fmt", "yuv420p", "-fps_mode", "passthrough"])
     if contract["audio"]["mode"] == "silent":
         args.append("-an")
     else:
