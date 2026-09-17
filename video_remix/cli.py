@@ -17,6 +17,7 @@ from .dreamina import Dreamina
 from .inventory import inventory
 from .performance_assessment import assess_performance
 from .project import add_asset, add_variant, compare, initialize, status
+from .production_job import produce
 from .runner import attach, execute, revision
 from .sound_assessment import assess
 from .variation import vary
@@ -84,6 +85,10 @@ def parser():
     assembly = sub.add_parser("assemble", help="默认预览已下载镜头组装；--execute 才执行本地硬切")
     assembly.add_argument("file")
     assembly.add_argument("--execute", action="store_true")
+    production = sub.add_parser("produce", help="已准备镜头一次入口生成至组装；默认预览，原任务可恢复")
+    production.add_argument("file")
+    production.add_argument("--execute", action="store_true")
+    production.add_argument("--wait", type=int, default=0, help="本次查询等待0至60秒，未完成同命令恢复")
     run = sub.add_parser("run", help="默认预览；--execute 才提交/恢复任务")
     run.add_argument("ids", nargs="+")
     run.add_argument("--execute", action="store_true")
@@ -130,6 +135,7 @@ def dispatch(a):
         "vary": lambda: vary(root, a.file),
         "vary-assembly": lambda: vary_assembly(root, a.file, a.execute),
         "assemble": lambda: assemble(root, a.file, a.execute),
+        "produce": lambda: produce(root, a.file, a.execute, a.wait),
         "run": lambda: execute(root, a.ids, a.budget, a.estimate_per_job, a.execute, a.wait),
         "attach": lambda: attach(root, a.variant, a.task_id),
         "status": lambda: status(root), "compare": lambda: compare(root),

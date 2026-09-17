@@ -112,8 +112,16 @@ def prepare(root, contract, ffprobe):
     sources = {variant: source(root, variant, ffprobe) for variant in ids}
     if audio["mode"] == "continuous" and "asset" in audio:
         sources[continuous_key(audio)] = asset_source(root, audio, ffprobe)
+    return sources, validate_sources(contract, sources)
+
+
+def validate_sources(contract, sources, partial=False):
+    """生成前也能核验已落盘来源；缺失镜头不伪造成媒体证据。"""
+    audio = contract["audio"]
     shapes = set()
     for clip in contract["clips"]:
+        if partial and clip["variant"] not in sources:
+            continue
         media = sources[clip["variant"]]["media"]
         shapes.add((media["width"], media["height"], media["sar"]))
         if clip["out"] > media["video_duration"]:
@@ -122,13 +130,13 @@ def prepare(root, contract, ffprobe):
             raise ValueError("每段长度必须至少为一帧（1/30 秒）")
         if audio["mode"] == "clips":
             audio_covers(media, clip["in"], clip["out"])
-    if len(shapes) != 1:
+    if len(shapes) > 1 or (not partial and not shapes):
         raise ValueError("拼接视频必须具有相同分辨率和画幅，不自动缩放或裁切")
     expected = finite(sum(c["out"] - c["in"] for c in contract["clips"]), "总时长", positive=True)
-    if audio["mode"] == "continuous":
+    if audio["mode"] == "continuous" and (not partial or continuous_key(audio) in sources):
         start = audio.get("in", 0)
         audio_covers(sources[continuous_key(audio)]["media"], start, start + expected)
-    return sources, expected
+    return expected
 
 
 def asset_source(root, audio, ffprobe):

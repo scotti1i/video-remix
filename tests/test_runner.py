@@ -8,7 +8,7 @@ from unittest.mock import patch
 from video_remix.dreamina import CommandError
 from video_remix.project import add_asset, add_variant, compare, initialize, status
 from video_remix.runner import attach, execute
-from video_remix.storage import atomic, project_at, read
+from video_remix.storage import atomic, locked, project_at, read
 
 
 class FakeDreamina:
@@ -237,6 +237,117 @@ class RunnerTests(unittest.TestCase):
         result = self.run_job(["replica", "variation"], budget=200, provider=provider)
         self.assertEqual(result["stop"], "price_exceeded_estimate")
         self.assertEqual(len(provider.submissions), 1)
+
+    def test_query_price_increase_updates_cost_and_blocks_next_payment(self):
+        self.add("second")
+        provider = FakeDreamina(price=24)
+        provider.query_extra = {"credit_count": 60}
+        result = self.run_job(["replica", "second"], budget=48, estimate=24, provider=provider)
+        self.assertEqual(result["stop"], "price_exceeded_estimate")
+        self.assertEqual(result["new_credits"], 60)
+        self.assertEqual(result["results"][0]["phase"], "downloaded")
+        self.assertEqual(len(provider.submissions), 1)
+        self.assertFalse((self.root / "variants/second/run.json").exists())
+
+    def test_unknown_query_price_never_uses_estimate_as_actual(self):
+        self.add("second")
+        provider = FakeDreamina(price=24)
+        provider.query_extra = {"credit_count": None}
+        result = self.run_job(["replica", "second"], budget=48, estimate=24, provider=provider)
+        self.assertEqual(result["stop"], "unknown_price")
+        self.assertIsNone(result["new_credits"])
+        self.assertIsNone(read(self.root / "variants/replica/run.json")["credits"])
+        self.assertEqual(len(provider.submissions), 1)
+        result = self.run_job(["replica", "second"], budget=48, estimate=24, provider=provider)
+        self.assertEqual(result["stop"], "unknown_price")
+        self.assertEqual(len(provider.submissions), 1)
+
+    def test_unknown_submit_price_can_recover_without_authorizing_next_payment(self):
+        self.add("second")
+        provider = FakeDreamina(price=None)
+        result = self.run_job(["replica", "second"], provider=provider)
+        self.assertEqual(result["stop"], "unknown_price")
+        self.assertIsNone(result["new_credits"])
+        result = self.run_job(["replica", "second"], provider=provider)
+        self.assertEqual(result["stop"], "unknown_price")
+        self.assertEqual(result["results"][0]["phase"], "downloaded")
+        self.assertEqual(len(provider.submissions), 1)
+
+    def test_later_existing_failure_or_ambiguous_submit_blocks_first_new_payment(self):
+        for state in ("failed", "ambiguous"):
+            with self.subTest(state=state):
+                existing, new = "existing-" + state, "new-" + state
+                self.add(existing)
+                self.add(new)
+                provider = FakeDreamina(ambiguous=state == "ambiguous")
+                if state == "failed":
+                    provider.query_status = "fail"
+                    self.run_job([existing], provider=provider)
+                else:
+                    with self.assertRaises(TimeoutError):
+                        self.run_job([existing], provider=provider)
+                provider.query_status, provider.ambiguous = "success", False
+                if state == "failed":
+                    self.assertEqual(self.run_job([new, existing], provider=provider)["stop"], "failed")
+                else:
+                    with self.assertRaisesRegex(ValueError, "结果不明"):
+                        self.run_job([new, existing], provider=provider)
+                self.assertEqual(len(provider.submissions), 1)
+                self.assertFalse((self.root / f"variants/{new}/run.json").exists())
+
+    def test_budget_blocks_only_new_payment_and_recovers_later_existing_task(self):
+        self.add("new")
+        provider = FakeDreamina()
+        provider.query_status = "querying"
+        self.run_job(provider=provider)
+        provider.query_status = "success"
+        with patch.object(provider, "account", side_effect=AssertionError("no new account check")):
+            result = self.run_job(["new", "replica"], budget=1, provider=provider)
+        self.assertEqual(result["stop"], "budget")
+        self.assertEqual(result["new_credits"], 0)
+        self.assertEqual(result["results"][0]["phase"], "downloaded")
+        self.assertEqual(len(provider.submissions), 1)
+
+    def test_resumed_query_price_blocks_new_payment_without_blocking_download(self):
+        self.add("second")
+        provider = FakeDreamina(price=24)
+        provider.query_status = "querying"
+        self.run_job(provider=provider, estimate=24)
+        provider.query_status = "success"
+        provider.query_extra = {"credit_count": 60}
+        result = self.run_job(["replica", "second"], budget=48, estimate=24, provider=provider)
+        self.assertEqual(result["stop"], "price_exceeded_estimate")
+        self.assertEqual(result["new_credits"], 0)
+        self.assertEqual(result["results"][0]["credits"], 60)
+        self.assertEqual(result["results"][0]["phase"], "downloaded")
+        self.assertEqual(len(provider.submissions), 1)
+
+    def test_before_submit_callback_runs_for_each_payment_under_project_lock(self):
+        self.add("second")
+        provider, calls = FakeDreamina(price=24), []
+        def check():
+            with self.assertRaisesRegex(ValueError, "已有进程"):
+                with locked(self.root / ".project.lock"):
+                    pass
+            calls.append(len(provider.submissions))
+        execute(self.root, ["replica", "second"], 48, 24, provider=provider, before_submit=check)
+        self.assertEqual(calls, [])
+        execute(self.root, ["replica", "second"], 48, 24, execute=True,
+                provider=provider, before_submit=check)
+        self.assertEqual(calls, [0, 1])
+        execute(self.root, ["replica", "second"], 1, 24, execute=True,
+                provider=provider, before_submit=check)
+        self.assertEqual(calls, [0, 1])
+
+    def test_before_submit_failure_has_no_submit_intent_or_paid_call(self):
+        provider = FakeDreamina()
+        def check():
+            raise ValueError("existing clip too short")
+        with self.assertRaisesRegex(ValueError, "existing clip too short"):
+            execute(self.root, ["replica"], 100, 42, execute=True,
+                    provider=provider, before_submit=check)
+        self.assertEqual(provider.submissions, [])
+        self.assertFalse((self.root / "variants/replica/run.json").exists())
 
     def test_budget_counts_previous_runs_on_resume(self):
         self.add("variation", kind="variation", parent="replica", change="场景")

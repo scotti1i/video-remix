@@ -16,7 +16,7 @@ Skill 已更名为 `sct-video-remix`。安装器接受旧目录名称并迁移�
 
 ## 1. 项目与参考
 
-开始制作、复刻或裂变时完整读取 [制作方法](../../sct-video-remix/references/production.md)。使用 `compile`、`vary` 或 `vary-assembly` 时读取 [制作计划合同](../../sct-video-remix/references/plan-contract.md)；有口播按制作方法路由读说话指导。链接兼容新旧 Skill 路径。故障查询和单纯下载不必重新分析素材。当前工作指导与后端为本地候选 0.4.0rc2；旧项目升级前继续遵守其固定版。
+开始制作、复刻或裂变时完整读取 [制作方法](../../sct-video-remix/references/production.md)。使用 `compile`、`vary` 或 `vary-assembly` 时读取 [制作计划合同](../../sct-video-remix/references/plan-contract.md)；有口播按制作方法路由读说话指导。链接兼容新旧 Skill 路径。故障查询和单纯下载不必重新分析素材。当前工作指导与后端为本地候选 0.4.0rc3；旧项目升级前继续遵守其固定版。
 
 ```sh
 init <用户项目目录> --name "商品前后对比"
@@ -88,6 +88,8 @@ Gemini 分析真实调用：
 
 开发候选的 `vary-assembly /absolute/film-control.json` 默认只读预览，`--execute` 才复用同一受控裂变逻辑登记指定镜头，并输出 `assembly-variations/<新ID>/assembly.json`。它从明确父组装合同逐镜派生，保留取用区间、顺序和声音合同；没改的镜头沿用原版本，也可显式接入已登记的局部返修版本。不会生图、生成或拼视频。字段及失败恢复见[整片裂变与局部替换](plan-contract.md#整片裂变与局部替换)。待新镜头按既有 `run` 下载后，再将输出合同交给 `assemble`；旧固定后端无此入口时不强行调用。
 
+候选 `produce /absolute/production.json` 将已登记版本的串行生成、恢复、下载与组装连起来，默认预览，加 `--execute --wait 30` 才执行；仍在生成时恢复同一合同。使用方法和独立的 `video-remix-production.v1` 合同见[裂变直出](direct-production.md)。它不生图或改写 prompt，不自动审片重抽；原 `run/assemble` 可继续分别使用。
+
 ## 3. 提交与恢复
 
 ```sh
@@ -100,6 +102,8 @@ Gemini 分析真实调用：
 等待结束仍在生成时，重复同一条 run 命令恢复；有任务 ID 就不会重交。模型失败后如需再生成，登记新的 rerun 版本，费用独立计数。
 
 同批任务默认串行：上一条未完成下载时返回 `stop=pending`，不抢先下后一单；恢复同一批即可继续。平台 `fail` 也是终止失败，不是仍在生成。查看 `queue_info.queue_status` 区分 Queueing 与 Generating，没有字段就说未知，不凭 querying 猜测。已知失败保存安全错误分类，不盲目切模型/新建重试；用户授权的补测才新建版本。
+
+0.4.0rc3 恢复时先收取合同内已有任务，再决定是否提交新镜头；后镜已有失败/提交不明时，不先为前镜付款。新付款使用查询后的最新费用，未知价或涨价会停后续，不阻止收取已付费原件。`new_credits` 只统计本次新提交ID的最新费用，任一未知时为 `null`；恢复旧任务的费用更新在各结果 `credits` 中，不算新的提交。
 
 0.2.x 旧记录若已有 task_id 且查询证据为 `provider_status=fail`、但 phase 错留 polling，新启动器允许备份后兼容升级，不改写旧证据。只有 querying 或 submit_intent 仍阻止升级；先用原版查原任务取得真实终止结果，不能手改成失败绕过。
 

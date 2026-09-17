@@ -50,7 +50,7 @@ def prepare(root, ids):
     return items
 
 
-def execute(root, ids, budget, estimate, execute=False, wait=0, provider=None):
+def execute(root, ids, budget, estimate, execute=False, wait=0, provider=None, before_submit=None):
     if not positive_number(budget) or not positive_number(estimate):
         raise ValueError("budget 和 estimate-per-job 必须是有限正数")
     with locked(root / ".project.lock"):
@@ -64,7 +64,7 @@ def execute(root, ids, budget, estimate, execute=False, wait=0, provider=None):
                     validate_spec(spec, root)
             return {"execute": False, "budget": budget, "estimated_per_new_job": estimate,
                     "note": "预估不是平台硬扣费上限，超出预估会停止后续提交", "variants": summary}
-        return execute_items(root, items, provider, budget, estimate, wait)
+        return execute_items(root, items, provider, budget, estimate, wait, before_submit)
 
 
 def prepare_submissions(root, items, provider):
@@ -83,42 +83,96 @@ def prepare_submissions(root, items, provider):
     return {spec["id"]: (assets, args) for _, spec, assets, _, args in pending}, credit
 
 
-def execute_items(root, items, provider, budget, estimate, wait):
-    existing = sum(record.get("credits") if type(record.get("credits")) in (int, float)
-                   else record.get("estimated_credits", estimate)
-                   for _, _, _, record, _ in items if record)
-    spent, results, submissions = 0, [], None
-    for directory, spec, assets, run, args in items:
-        if run and run["phase"] == "submit_intent":
-            raise ValueError("上次提交结果不明；核对平台后用 attach 绑定原任务 ID，禁止重交")
-        if run and str(run.get("provider_status", "")).strip().lower() in TERMINAL_FAILURES:
+def known_credits(value):
+    return type(value) in (int, float) and math.isfinite(value) and value >= 0
+
+
+def charges(records):
+    values = [record.get("credits") for record in records]
+    return sum(values) if all(known_credits(value) for value in values) else None
+
+
+def batch_result(items, records, new_ids, stop=None):
+    result = {"new_credits": charges(records[name] for name in new_ids),
+              "results": [records[spec["id"]] for _, spec, _, _, _ in items if spec["id"] in records]}
+    if stop:
+        result["stop"] = stop
+    return result
+
+
+def state_block(records):
+    phases = {record["phase"] for record in records.values()}
+    if "submit_intent" in phases:
+        raise ValueError("上次提交结果不明；核对平台后用 attach 绑定原任务 ID，禁止重交")
+    if "failed" in phases:
+        return "failed"
+    if phases - {"downloaded"}:
+        return "pending"
+    return None
+
+
+def payment_block(records, budget, estimate):
+    total = charges(records.values())
+    if total is None:
+        return "unknown_price"
+    if any(record["credits"] > estimate for record in records.values()):
+        return "price_exceeded_estimate"
+    if total + estimate > budget:
+        return "budget"
+    return None
+
+
+def recover_existing(items, provider, wait):
+    records = {}
+    for directory, spec, _, run, _ in items:
+        if run is None:
+            continue
+        if str(run.get("provider_status", "")).strip().lower() in TERMINAL_FAILURES:
             # 兼容旧记录把 fail 留成 polling 的情况；已知终止的任务不再空查。
             if run["phase"] != "failed":
                 run.update(phase="failed", **failure_details({"gen_status": run["provider_status"]}))
                 atomic(directory / "run.json", run)
-        if run is None:
-            provider = provider or Dreamina()
-            if submissions is None:
-                submissions, credit = prepare_submissions(root, items, provider)
-            assets, args = submissions[spec["id"]]
-            if existing + spent + estimate > budget or spent + estimate > credit:
-                return {"stop": "budget", "new_credits": spent, "results": results}
-            run = submit_once(directory, spec, assets, args, provider, estimate)
-            actual = run.get("credits")
-            if type(actual) not in (int, float) or not math.isfinite(actual) or actual < 0:
-                return {"stop": "unknown_price", "results": results + [run]}
-            spent += actual
-            if actual > estimate or existing + spent > budget:
-                return {"stop": "price_exceeded_estimate", "new_credits": spent, "results": results + [run]}
-        if run["phase"] not in ("downloaded", "failed"):
+        if run["phase"] not in ("downloaded", "failed", "submit_intent"):
             provider = provider or Dreamina()
             run = poll(directory, run, provider, wait)
-        results.append(run)
-        if run["phase"] != "downloaded":
-            # wait 结束只代表本次等待结束；前一单未成功落盘时不提交下一单。
-            return {"stop": "failed" if run["phase"] == "failed" else "pending",
-                    "new_credits": spent, "results": results}
-    return {"new_credits": spent, "results": results}
+        records[spec["id"]] = run
+    return records, provider
+
+
+def execute_items(root, items, provider, budget, estimate, wait, before_submit=None):
+    # 先收取所有已有 ID；预算、后镜失败或提交不明均不能触发前镜的新付款。
+    records, provider = recover_existing(items, provider, wait)
+    new_ids, submissions = [], None
+    stop = state_block(records)
+    if stop:
+        return batch_result(items, records, new_ids, stop)
+    for directory, spec, _, existing, _ in items:
+        if existing is not None:
+            continue
+        stop = payment_block(records, budget, estimate)
+        if stop:
+            return batch_result(items, records, new_ids, stop)
+        provider = provider or Dreamina()
+        if submissions is None:
+            submissions, credit = prepare_submissions(root, items, provider)
+        if charges(records[name] for name in new_ids) + estimate > credit:
+            return batch_result(items, records, new_ids, "budget")
+        if before_submit is not None:
+            before_submit()
+        assets, args = submissions[spec["id"]]
+        run = submit_once(directory, spec, assets, args, provider, estimate)
+        records[spec["id"]] = run
+        new_ids.append(spec["id"])
+        actual = run.get("credits")
+        if not known_credits(actual):
+            return batch_result(items, records, new_ids, "unknown_price")
+        if actual > estimate or charges(records.values()) > budget:
+            return batch_result(items, records, new_ids, "price_exceeded_estimate")
+        records[spec["id"]] = poll(directory, run, provider, wait)
+        stop = state_block(records)
+        if stop:
+            return batch_result(items, records, new_ids, stop)
+    return batch_result(items, records, new_ids)
 
 
 def submit_once(directory, spec, assets, args, provider, estimate):
@@ -155,7 +209,7 @@ def poll(directory, run, provider, wait):
         payload = unpack(provider.query(run["task_id"]))
         status = str(payload.get("gen_status", "unknown")).strip().lower()
         run.update(provider_status=status, checked_at=now(), queue_info=queue_snapshot(payload))
-        if payload.get("credit_count") is not None:
+        if "credit_count" in payload:
             run["credits"] = payload["credit_count"]
         if status in TERMINAL_FAILURES:
             run.update(phase="failed", **failure_details(payload))
