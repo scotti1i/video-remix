@@ -154,6 +154,8 @@ my-product/
 
 ## 开发与发布边界
 
+本地开发候选增加 `python3 -m video_remix inventory --root /absolute/project-collection`，只读列出各项目的任务、实际记录费用与本地原片；保留失败、状态冲突和未知费用，不调用平台、不升级旧项目。它用于核对跨批交付遗漏，不代表成片或客户验收。实验迭代方法见 [实验迭代](skills/sct-video-remix/references/iteration.md)；候选制作修改仍需真实成片验证，未发布为新的效果升级版本。
+
 ```sh
 python3 -m unittest discover -s tests -v
 python3 -m video_remix doctor

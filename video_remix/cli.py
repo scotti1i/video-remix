@@ -12,6 +12,7 @@ from .analysis import analyze
 from .compatibility import inspect
 from .creative import compile_plan
 from .dreamina import Dreamina
+from .inventory import inventory
 from .performance_assessment import assess_performance
 from .project import add_asset, add_variant, compare, initialize, status
 from .runner import attach, execute, revision
@@ -47,6 +48,8 @@ def parser():
     sub = p.add_subparsers(dest="command", required=True)
     doctor_p = sub.add_parser("doctor", help="检查本机工具和配置，不生成")
     doctor_p.add_argument("--account", action="store_true", help="只读检查即梦账号和积分")
+    inventory_p = sub.add_parser("inventory", help="只读汇总项目集合、任务和本地成片；不代表人工验收")
+    inventory_p.add_argument("--root", required=True, help="一个项目或包含一层项目子目录的集合；不递归扫描")
     init = sub.add_parser("init")
     init.add_argument("path")
     init.add_argument("--name", required=True)
@@ -97,6 +100,8 @@ def dispatch(a):
         return doctor(a.account)
     if a.command == "init":
         return initialize(a.path, a.name)
+    if a.command == "inventory":
+        return inventory(a.root)
     if a.command == "assess" and a.focus == "sound" and a.video_fps is not None:
         raise ValueError("--video-fps 只用于视频分析，不适用于sound音轨检查")
     root = project_at(a.project)
