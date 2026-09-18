@@ -53,6 +53,8 @@
 
 有口播时在 `sound` 保存唯一台词正文及少量意群的近似时间/表达走势；`delivery/sync` 只接关键意思，不重复另一套台词或与全局指令相反的语气。意群独立于切镜，具体做法见 [说话表达迁移](../../sct-video-remix/references/speech.md)。`provenance` 可增加 `target`、`transfer`、`acceptance` 等短记录，解释用户目标、源证据如何进入本计划、结果该看什么；它们不会进入生成 prompt。`target` 是来自用户的目标，不是作者对成片的评价；`transfer` 把关键展示组、商品关系及声音证据指到实际正文，合并或省略时记原因，不要求固定表格。`acceptance` 是历史可选字段，只记观察问题，不是机器验收结论，也不强制每次填写。可选诊断会消费冻结计划的原目标，临时 `brief` 不能自行豁免。
 
+`transfer` 沿用现有自由文本，不增加强制字段。例如一条可写：“源analysis.md镜2：展示带有拉链袋的另一侧 → shots.0.action：悬挂转至外背拉链面再继续；inputs中的背面事实图支持后来露出的外观。”这是源→实际执行位置，不是“转面已保留”的自我评价；用于动作的事实不能只指向product或provenance。必要取舍写同一条，不在另一份摘要重写要求。后端不替作者判断语义覆盖。
+
 若跳删/变速，`provenance.source_to_output` 可逐段记录源区间与输出区间，供验收定位；它是制作决策的证据，不是视频模型精确时序保证，不要求简单任务补映射表。声音和画面采用不同源区间/变速时，分别记录，并在各条 `reason` 标明“声音”或“画面”；不能用视觉切点代替语音边界。`target` 只保存用户的内容目标和允许变化，不混入“本轮仅预览/尚未提交”等临时执行状态。
 
 `kind=variation` 需要已存在的 `parent` 和 `change`；`rerun` 从父版冻结的 `variants/<id>/spec.json` 复制，只改新 ID、kind、parent 和记录说明，不从制作摘要重写 prompt。新登记会核对提供方、模型、时长、比例、分辨率、有序 inputs 与完整 prompt 相同；改条件用 variation。旧 `variant` JSON 继续有效，新增计划不改变旧 v1 项目语义。保留的 `plans/<id>/plan.json` 和 `spec.json` 是可审查的交接快照。
