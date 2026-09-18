@@ -155,9 +155,17 @@ class ProjectRuntimeTests(unittest.TestCase):
 
     def test_known_legacy_fail_does_not_deadlock_upgrade(self):
         self.newer()
+        # 旧版真实任务也有规格和格式；孤立的三字段记录不是可恢复项目。
+        source = self.base / "source.png"
+        source.write_bytes(b"local-test-image")
+        self.call("run", "--project", str(self.project), "--", "asset", "product", str(source), "--role", "product")
         record = self.project / "variants/test/run.json"
         record.parent.mkdir(parents=True)
-        old = {"phase": "polling", "provider_status": "fail", "task_id": "confirmed-task"}
+        bootstrap.write(record.parent / "spec.json", {
+            "id": "test", "provider": "dreamina", "model": "seedance2.0fast_vip", "prompt": "local fixture",
+            "duration": 4, "ratio": "9:16", "resolution": "720p", "kind": "replica",
+            "inputs": [{"type": "image", "asset": "product", "role": "product"}]})
+        old = {"format": "video-remix-run.v1", "phase": "polling", "provider_status": "fail", "task_id": "confirmed-task"}
         bootstrap.write(record, old)
         result = self.call("project-upgrade", "--project", str(self.project), "--apply")
         self.assertTrue(result["applied"])

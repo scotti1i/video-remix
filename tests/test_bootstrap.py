@@ -70,6 +70,24 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(file.read_text(), "BROKEN CODE")
         self.assertEqual(repaired["revision"], first["revision"])
 
+    def test_workflow_uses_current_directory_and_keeps_old_revisions(self):
+        first = self.ensure()
+        self.assertEqual(Path(first["workflow"]).relative_to(first["engine"]).parts[1], "video-remix")
+        current = self.repo / "skills/sct-video-remix/references/workflow.md"
+        current.parent.mkdir(parents=True)
+        current.write_text("[分镜](shot-generation.md)")
+        (current.parent / "shot-generation.md").write_text("local guide")
+        legacy = self.repo / "skills/video-remix/references/workflow.md"
+        legacy.unlink()
+        legacy.symlink_to("../../sct-video-remix/references/workflow.md")
+        self.commit()
+        second = self.ensure()
+        guide = Path(second["workflow"])
+        self.assertEqual(guide.relative_to(second["engine"]).parts[1], "sct-video-remix")
+        self.assertTrue((guide.parent / "shot-generation.md").is_file())
+        rollback = self.ensure(rollback=True)
+        self.assertEqual(rollback["workflow"], first["workflow"])
+
     def test_bad_update_preserves_current(self):
         first = self.ensure()
         (self.repo / "video_remix/cli.py").write_text("raise RuntimeError('bad update')")

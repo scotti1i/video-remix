@@ -115,10 +115,17 @@ def invocation(engine, args):
     return [sys.executable, "-I", "-c", code, str(engine), *args]
 
 
+def workflow_path(engine):
+    current = engine / "skills/sct-video-remix/references/workflow.md"
+    legacy = engine / "skills/video-remix/references/workflow.md"
+    # 返回真目录，避免通过兼容软链读取后，相邻指导的相对路径落到旧目录。
+    return (current if current.is_file() else legacy).resolve()
+
+
 def healthy(engine, expected=None):
     if not engine or not (engine / "video_remix" / "cli.py").is_file():
         return False
-    if not (engine / "skills/video-remix/references/workflow.md").is_file():
+    if not workflow_path(engine).is_file():
         return False
     try:
         if expected and git("-C", engine, "rev-parse", "HEAD") != expected:
@@ -217,7 +224,7 @@ def do_rollback(home, file, state):
 def result(home, state, action, warning=None):
     engine = active(home, state)
     return {"action": action, "engine": str(engine), "revision": state["current"]["revision"],
-            "workflow": str(engine / "skills/video-remix/references/workflow.md"),
+            "workflow": str(workflow_path(engine)),
             "warning": warning}
 
 
@@ -299,7 +306,7 @@ def compatibility(engine, root):
 def upgrade_project(root, home, repo, apply=False, offline=False):
     if not root:
         raise RuntimeError("项目升级需要 --project 指定已有项目")
-    with lock(root, ".project.lock"):
+    with lock(root, ".production.lock"), lock(root, ".assembly-variation.lock"), lock(root, ".project.lock"):
         old = read(root / "runtime-lock.json")
         if not old:
             raise RuntimeError("先用 ensure --project 固定旧项目版本，再检查升级")
@@ -308,6 +315,11 @@ def upgrade_project(root, home, repo, apply=False, offline=False):
             raise RuntimeError("项目更新源与可信仓库不一致")
         busy = [str(p.parent.name) for p in (root / "variants").glob("*/run.json")
                 if unfinished(read(p))]
+        terminal = {"productions": {"completed", "failed"}, "assemblies": {"completed", "failed"},
+                    "assembly-variations": {"prepared", "failed"}}
+        for folder, statuses in terminal.items():
+            busy.extend(str(path.relative_to(root)) for path in (root / folder).glob("*/run.json")
+                        if read(path).get("status") not in statuses)
         if busy:
             raise RuntimeError("仍有未完成或提交状态不明的任务，先用旧版完成：" + ", ".join(busy))
         if offline:
@@ -338,8 +350,9 @@ def backup_metadata(root):
     import shutil
     backup = root / ".runtime-backups" / uuid.uuid4().hex
     files = [root / "project.json", root / "runtime-lock.json"]
-    files += list((root / "variants").glob("*/*.json"))
-    files += list((root / "analysis").glob("*/*.json"))
+    for folder in ("variants", "analysis", "plans", "assemblies", "productions", "assembly-variations"):
+        files += list((root / folder).glob("*/*.json"))
+    files += list((root / "analysis").glob("*/*.md"))
     for source in files:
         target = backup / source.relative_to(root)
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -367,7 +380,7 @@ def select_engine(args, home, root):
         if pin and not healthy(engine, pin["revision"]):
             raise RuntimeError("指定后端不符合项目版本锁；省略 --engine 自动恢复固定版本")
         return {"engine": str(engine), "action": "local_development",
-                "workflow": str(engine / "skills/video-remix/references/workflow.md")}
+                "workflow": str(workflow_path(engine))}
     if root:
         return project_engine(root, home, args.repo, args.offline)
     return resolve(home, args.repo, args.offline, args.action == "check",
