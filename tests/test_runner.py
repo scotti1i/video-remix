@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from video_remix.dreamina import CommandError
+from video_remix.dreamina import CommandError, Dreamina
 from video_remix.project import add_asset, add_variant, compare, initialize, status
 from video_remix.runner import attach, execute
 from video_remix.storage import atomic, locked, project_at, read
@@ -144,6 +144,46 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(record["inputs"][0]["role"], "包装")
         self.assertEqual(record["generation_inputs"], inputs)
         self.assertEqual(record["prompt"], self.spec["prompt"])
+
+    def test_first_frame_preview_and_resume_preserve_actual_route_without_resubmitting(self):
+        self.add("first-frame", generation_route="first_frame")
+        provider = FakeDreamina()
+        provider.executable = "dreamina"
+        provider.arguments = lambda spec, root, assets: Dreamina.arguments(provider, spec, root, assets)
+        preview = self.run_job(["first-frame"], provider=provider, real=False)
+        self.assertEqual(preview["variants"][0]["generation_route"], "first_frame")
+        self.assertEqual(provider.submissions, [])
+        provider.query_status = "querying"
+        self.run_job(["first-frame"], provider=provider)
+        before = read(self.root / "variants/first-frame/run.json")
+        self.assertEqual(before["actual_argv"][1], "image2video")
+        self.assertNotIn("--ratio", before["actual_argv"])
+        asset = read(self.root / "project.json")["assets"]["product"]
+        (self.root / asset["path"]).unlink()
+        provider.query_status = "success"
+        with patch.object(provider, "arguments", side_effect=AssertionError("must not rebuild")), \
+                patch.object(provider, "preflight", side_effect=AssertionError("must not preflight")), \
+                patch.object(provider, "account", side_effect=AssertionError("must not check account")):
+            self.run_job(["first-frame"], provider=provider)
+        after = read(self.root / "variants/first-frame/run.json")
+        self.assertEqual(after["phase"], "downloaded")
+        self.assertEqual(after["task_id"], before["task_id"])
+        self.assertEqual(after["actual_argv"], before["actual_argv"])
+        self.assertEqual(len(provider.submissions), 1)
+
+    def test_first_frame_ambiguous_submit_remains_non_retryable(self):
+        self.add("first-frame", generation_route="first_frame")
+        provider = FakeDreamina(ambiguous=True)
+        provider.executable = "dreamina"
+        provider.arguments = lambda spec, root, assets: Dreamina.arguments(provider, spec, root, assets)
+        with self.assertRaises(TimeoutError):
+            self.run_job(["first-frame"], provider=provider)
+        with self.assertRaisesRegex(ValueError, "结果不明"):
+            self.run_job(["first-frame"], provider=provider)
+        record = read(self.root / "variants/first-frame/run.json")
+        self.assertEqual(record["phase"], "submit_intent")
+        self.assertEqual(record["actual_argv"][1], "image2video")
+        self.assertEqual(len(provider.submissions), 1)
 
     def test_download_retry_does_not_submit_again(self):
         provider = FakeDreamina(fail_download=True)

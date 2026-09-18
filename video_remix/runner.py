@@ -8,6 +8,7 @@ import time
 
 from . import __version__
 from .dreamina import CommandError, Dreamina, TERMINAL_FAILURES, failure_details, queue_snapshot, unpack
+from .generation_route import generation_route
 from .project import validate_spec
 from .storage import atomic, digest, locked, now, read, slug
 
@@ -56,6 +57,7 @@ def execute(root, ids, budget, estimate, execute=False, wait=0, provider=None, b
     with locked(root / ".project.lock"):
         items = prepare(root, ids)
         summary = [{"id": spec["id"], "model": spec["model"], "duration": spec["duration"],
+                    "generation_route": generation_route(spec),
                     "inputs": spec["inputs"], "prompt": spec["prompt"],
                     "existing_task": run.get("task_id") if run else None} for _, spec, _, run, _ in items]
         if not execute:

@@ -2,6 +2,7 @@
 
 from collections import Counter
 
+from .generation_route import validate_generation_route
 from .project import validate_rerun, validate_spec
 from .storage import atomic, locked, read, slug
 
@@ -15,6 +16,7 @@ def validate_plan(plan):
     slug(plan["id"])
     if plan.get("mode") not in MODES:
         raise ValueError("mode 必须是 image_text / image_audio / video_reference")
+    validate_generation_route(plan)
     counts = Counter(item["type"] for item in plan.get("inputs", []))
     mode = plan["mode"]
     if mode == "image_text" and (counts["video"] or counts["audio"]):
@@ -64,7 +66,7 @@ def assemble(plan):
     if plan.get("constraints"):
         sections.append("CONSTRAINTS\n" + plan["constraints"])
     fields = ("id", "kind", "parent", "change", "provider", "model",
-              "duration", "ratio", "resolution", "inputs")
+              "duration", "ratio", "resolution", "inputs", "generation_route")
     return {**{key: plan[key] for key in fields if key in plan},
             "prompt": "\n\n".join(sections), "creative_mode": plan["mode"]}
 

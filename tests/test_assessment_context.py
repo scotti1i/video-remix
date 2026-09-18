@@ -174,13 +174,19 @@ class AssessmentTargetTests(unittest.TestCase):
     def test_every_link_checks_conditions_even_with_matching_submission_hash(self):
         for changed in ({"prompt": "changed"}, {"duration": 14}, {"creative_mode": "changed"},
                         {"inputs": [{"type": "image", "asset": "product", "role": "changed"}]},
-                        {"new_provider_option": "changed"}):
+                        {"new_provider_option": "changed"}, {"generation_route": "first_frame"}):
             with self.subTest(changed=changed):
                 self.rerun("v2", **changed)
                 self.rerun("v3", "v2")
                 with patch("urllib.request.urlopen") as fetch, self.assertRaisesRegex(ValueError, "生成条件不一致"):
                     self.invoke("performance", variant="v3")
                 fetch.assert_not_called()
+
+    def test_explicit_reference_rerun_inherits_legacy_default_reference_target(self):
+        self.rerun("v2", generation_route="reference")
+        context = frozen_target(self.root, "v2")
+        self.assertEqual(context["status"], "matched")
+        self.assertEqual(context["inherited_from"], "v1")
 
     def test_each_ancestor_submission_hash_is_verified(self):
         self.rerun("v2")

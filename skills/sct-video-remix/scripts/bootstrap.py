@@ -300,7 +300,48 @@ def compatibility(engine, root):
     report = json.loads(response.stdout)
     if report.get("compatible") is not True:
         raise RuntimeError("目标版本没有确认兼容；不切换项目")
+    # 旧读取器会忽略未知spec字段；不能只相信它返回的笼统compatible。
+    required = set()
+    for folder, name in (("variants", "spec.json"), ("plans", "plan.json")):
+        for path in (root / folder).glob(f"*/{name}"):
+            route = read(path).get("generation_route", "reference")
+            if not isinstance(route, str):
+                raise RuntimeError("项目生成路线无效；不切换项目")
+            if route != "reference":
+                required.add(route)
+    require_routes(report, required)
     return report
+
+
+def require_routes(report, required):
+    supported = report.get("generation_routes", [])
+    if not isinstance(supported, list) or any(not isinstance(v, str) for v in supported) \
+            or not required <= set(supported):
+        raise RuntimeError("目标版本未显式支持项目生成路线；不能让旧运行时忽略首帧字段")
+
+
+def guard_incoming_route(engine, backend_args):
+    # 首帧计划尚未登记时项目兼容检查看不到它；先拦截旧compiler静默丢字段。
+    arguments = list(backend_args)
+    if arguments[:1] == ["--project"]:
+        arguments = arguments[2:]
+    elif arguments and arguments[0].startswith("--project="):
+        arguments = arguments[1:]
+    if len(arguments) < 2 or arguments[0] not in ("compile", "variant"):
+        return
+    if arguments[1] == "--":
+        arguments = [arguments[0], *arguments[2:]]
+    if len(arguments) < 2:
+        return
+    route = read(Path(arguments[1]).expanduser()).get("generation_route", "reference")
+    if route == "reference":
+        return
+    if not isinstance(route, str):
+        raise RuntimeError("输入文件生成路线无效；未交给旧后端")
+    response = subprocess.run(invocation(engine, ["doctor"]), capture_output=True, text=True, timeout=60)
+    if response.returncode:
+        raise RuntimeError("目标运行时未能报告生成路线能力；未执行登记")
+    require_routes(json.loads(response.stdout), {route})
 
 
 def upgrade_project(root, home, repo, apply=False, offline=False):
@@ -393,6 +434,7 @@ def execute_action(args, backend_args, home, root):
     info = select_engine(args, home, root)
     if args.action != "run":
         return info
+    guard_incoming_route(Path(info["engine"]), backend_args)
     if info.get("warning"):
         print(info["warning"], file=sys.stderr)
     if args.project and "--project" not in backend_args and not any(a.startswith("--project=") for a in backend_args):

@@ -7,6 +7,7 @@ import shutil
 import subprocess
 from collections import Counter
 
+from .generation_route import ROUTES, generation_route, validate_generation_route
 from .project import asset_path
 
 
@@ -127,21 +128,28 @@ class Dreamina:
     def preflight(self, items):
         if not shutil.which("ffprobe"):
             raise ValueError("缺少 ffprobe，请安装 FFmpeg 后再生成")
-        help_result = subprocess.run([self.executable, "multimodal2video", "--help"],
-                                     capture_output=True, text=True, timeout=30)
-        if help_result.returncode:
-            raise RuntimeError("无法读取即梦 CLI 能力，请检查本地 CLI")
+        help_texts = {}
         for directory, spec, assets, run, _ in items:
             if run is None:
-                validate_capabilities(spec, help_result.stdout)
+                route = generation_route(spec)
+                if route not in help_texts:
+                    result = subprocess.run([self.executable, ROUTES[route], "--help"],
+                                            capture_output=True, text=True, timeout=30)
+                    if result.returncode:
+                        raise RuntimeError("无法读取即梦 CLI 能力，请检查本地 CLI")
+                    help_texts[route] = result.stdout
+                validate_capabilities(spec, help_texts[route])
                 validate_media(spec, directory.parent.parent, assets)
 
     def arguments(self, spec, root, assets):
-        args = [self.executable, "multimodal2video"]
+        route = validate_generation_route(spec)
+        args = [self.executable, ROUTES[route]]
         for entry in spec["inputs"]:
             args += ["--" + entry["type"], str(asset_path(root, assets[entry["asset"]]))]
-        args += ["--prompt", spec["prompt"], "--duration", str(spec["duration"]),
-                 "--ratio", spec["ratio"], "--video_resolution", spec["resolution"],
+        args += ["--prompt", spec["prompt"], "--duration", str(spec["duration"])]
+        if route == "reference":
+            args += ["--ratio", spec["ratio"]]
+        args += ["--video_resolution", spec["resolution"],
                  "--model_version", spec["model"], "--poll", "0"]
         return args
 
@@ -165,7 +173,11 @@ def unpack(payload):
 
 
 def validate_capabilities(spec, help_text):
+    route = validate_generation_route(spec)
     model = spec["model"]
+    first_frame_models = {"seedance2.0", "seedance2.0fast", "seedance2.0_vip", "seedance2.0fast_vip"}
+    if route == "first_frame" and model not in first_frame_models:
+        raise ValueError("首帧路线当前仅开放 Seedance 2.0 标准/fast及VIP型号，其他型号尚未适配")
     if model not in help_text or not model.startswith("seedance"):
         raise ValueError("所选模型未出现在本机 CLI 帮助中")
     is25 = model == "seedance2.5"
@@ -185,6 +197,9 @@ def validate_capabilities(spec, help_text):
 
 
 def validate_media(spec, root, assets):
+    if validate_generation_route(spec) == "first_frame":
+        validate_first_frame(spec, root, assets)
+        return
     durations = {"video": 0, "audio": 0}
     maximum = 30 if spec["model"] == "seedance2.5" else 15
     for entry in spec["inputs"]:
@@ -200,3 +215,25 @@ def validate_media(spec, root, assets):
         durations[entry["type"]] += seconds
     if any(value > maximum for value in durations.values()):
         raise ValueError("参考音视频总时长超出模型范围")
+
+
+def validate_first_frame(spec, root, assets):
+    path = asset_path(root, assets[spec["inputs"][0]["asset"]])
+    result = command(["ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(path)])
+    streams = result.get("streams", [])
+    image = next((s for s in streams if s.get("codec_type") == "video"), {})
+    width, height = image.get("width"), image.get("height")
+    formats = set(result.get("format", {}).get("format_name", "").split(","))
+    image_formats = {"image2", "png_pipe", "jpeg_pipe", "webp_pipe", "bmp_pipe", "tiff_pipe"}
+    if not formats & image_formats or len(streams) != 1 or not width or not height:
+        raise ValueError("首帧必须是可解析的静态图片，不能把视频或音频标成图片")
+    rotations = [s.get("rotation", 0) for s in image.get("side_data_list", [])]
+    rotations.append(image.get("tags", {}).get("rotate", 0))
+    if any(float(v) != 0 for v in rotations) or image.get("sample_aspect_ratio", "1:1") not in ("1:1", "N/A"):
+        raise ValueError("首帧含旋转或非方形像素，先显式核实画幅，不自动旋转或裁切")
+    try:
+        numerator, denominator = (int(v) for v in spec["ratio"].split(":"))
+    except (KeyError, ValueError, AttributeError):
+        raise ValueError("首帧需要明确的计划画幅") from None
+    if numerator <= 0 or denominator <= 0 or width * denominator != height * numerator:
+        raise ValueError("首帧实际画幅与计划不一致；image2video从图片决定画幅，不自动裁切")

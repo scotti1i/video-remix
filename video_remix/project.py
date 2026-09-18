@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import uuid
 
+from .generation_route import generation_route, validate_generation_route
 from .storage import atomic, digest, locked, now, read, slug
 
 
@@ -44,6 +45,7 @@ def add_asset(root, asset_id, file, role):
 
 def validate_spec(spec, root, verify=True):
     slug(spec["id"])
+    validate_generation_route(spec)
     if spec.get("provider") != "dreamina":
         raise ValueError("当前视频适配器为 dreamina；其他平台尚未实现")
     if not isinstance(spec.get("prompt"), str) or not spec["prompt"].strip():
@@ -106,6 +108,8 @@ def validate_rerun(spec, root):
     parent = read(root / "variants" / spec["parent"] / "spec.json")
     fields = ("provider", "model", "duration", "ratio", "resolution", "inputs", "prompt")
     changed = [field for field in fields if spec.get(field) != parent.get(field)]
+    if generation_route(spec) != generation_route(parent):
+        changed.append("generation_route")
     if changed:
         raise ValueError("rerun 必须保持父版生成条件；有改动请用 variation：" + ", ".join(changed))
 

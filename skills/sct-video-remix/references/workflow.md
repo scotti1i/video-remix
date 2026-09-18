@@ -71,7 +71,7 @@ Gemini 分析真实调用：
 }
 ```
 
-这是字段示例，不是可用的示范成片或零密钥 demo。运行前填写真实提示词。平台分辨率、时长、输入限制以本机 `dreamina multimodal2video --help` 为准。各类型分别编号，顺序与 inputs 一致。
+这是字段示例，不是可用的示范成片或零密钥 demo。运行前填写真实提示词。默认多素材参考的限制以本机 `dreamina multimodal2video --help` 为准；显式 `generation_route: first_frame` 按 `dreamina image2video --help` 预检，单图限制和可用范围见[计划合同](plan-contract.md)。帮助中的支持声明不等于跨段效果已验证。各类型分别编号，顺序与 inputs 一致。
 
 设计裂变使用 `kind: variation`，指定 `parent: replica-01` 和 `change`；同条件重生成使用 `kind: rerun`。不覆盖已有规格；新版本使用新 ID。
 

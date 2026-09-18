@@ -4,6 +4,7 @@ import json
 import re
 
 from .creative import assemble
+from .generation_route import generation_route
 from .project import asset_path
 from .storage import digest, read, slug
 
@@ -86,6 +87,8 @@ def frozen_target(root, variant_id):
         metadata = {"id", "kind", "parent", "change"}
         child_conditions = {key: value for key, value in spec.items() if key not in metadata}
         parent_conditions = {key: value for key, value in parent.items() if key not in metadata}
+        child_conditions["generation_route"] = generation_route(spec)
+        parent_conditions["generation_route"] = generation_route(parent)
         if child_conditions != parent_conditions:
             raise ValueError("重生成与父版生成条件不一致，不能继承诊断目标")
         ancestry.append(verified)

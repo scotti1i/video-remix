@@ -15,6 +15,7 @@ from .compatibility import inspect
 from .creative import compile_plan
 from .dreamina import Dreamina
 from .inventory import inventory
+from .generation_route import ROUTES
 from .performance_assessment import assess_performance
 from .project import add_asset, add_variant, compare, initialize, status
 from .production_job import produce
@@ -29,7 +30,7 @@ def doctor(account=False):
     result = {"version": __version__, "python": sys.version.split()[0], "tools": tools,
               "gemini_key_configured": bool(os.environ.get("GEMINI_API_KEY")),
               "gemini_model": os.environ.get("GEMINI_MODEL"),
-              "video_adapters": ["dreamina"], "account_checked": account}
+              "video_adapters": ["dreamina"], "generation_routes": list(ROUTES), "account_checked": account}
     if account:
         result["account"] = Dreamina().account()
     return result

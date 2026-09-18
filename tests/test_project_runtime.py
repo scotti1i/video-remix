@@ -90,6 +90,50 @@ class ProjectRuntimeTests(unittest.TestCase):
         self.assertEqual(self.pin(), old_pin)
         self.call("run", "--project", str(self.project), "--", "status")
 
+    def test_target_ignoring_first_frame_spec_cannot_switch_project_pin(self):
+        image = self.base / "anchor.png"
+        image.write_bytes(b"registered local fixture; no generation")
+        self.call("run", "--project", str(self.project), "--", "asset", "anchor", str(image), "--role", "first frame")
+        spec = {"id": "first", "provider": "dreamina", "model": "seedance2.0fast_vip", "kind": "replica",
+                "duration": 4, "ratio": "9:16", "resolution": "720p", "prompt": "same visible state",
+                "generation_route": "first_frame", "inputs": [{"type": "image", "asset": "anchor", "role": "first frame"}]}
+        file = self.base / "first.json"
+        bootstrap.write(file, spec)
+        self.call("run", "--project", str(self.project), "--", "variant", str(file))
+        self.assertFalse((self.project / "plans").exists())
+        # 模拟旧目标只读未知字段后笼统报告兼容，不能依靠其内部validator拒绝。
+        (self.repo / "video_remix/compatibility.py").write_text('def inspect(root):\n return {"compatible": True}\n')
+        self.commit()
+        before = (self.project / "runtime-lock.json").read_bytes()
+        error = self.call("project-upgrade", "--project", str(self.project), "--apply", success=False)
+        self.assertIn("未显式支持", error["error"])
+        self.assertEqual((self.project / "runtime-lock.json").read_bytes(), before)
+        self.assertFalse((self.project / ".runtime-backups").exists())
+
+    def test_pinned_old_compiler_cannot_silently_drop_incoming_first_frame_route(self):
+        # 独立Git运行时模拟旧doctor无能力声明、旧compiler丢未知字段。
+        cli = self.repo / "video_remix/cli.py"
+        cli.write_text(cli.read_text().replace('"generation_routes": list(ROUTES), ', ''))
+        creative = self.repo / "video_remix/creative.py"
+        creative.write_text(creative.read_text().replace('"inputs", "generation_route")', '"inputs")'))
+        self.commit()
+        self.call("project-upgrade", "--project", str(self.project), "--apply")
+        old_pin = self.pin()
+        source = self.base / "source.png"
+        source.write_bytes(b"registered-image-fixture")
+        self.call("run", "--project", str(self.project), "--", "asset", "product", str(source), "--role", "product")
+        from test_creative import plan
+        file = self.base / "first.json"
+        bootstrap.write(file, {**plan(), "generation_route": "first_frame"})
+        error = self.call("run", "--project", str(self.project), "--", "compile", str(file), success=False)
+        self.assertIn("未显式支持", error["error"])
+        self.assertFalse((self.project / "plans").exists())
+        self.assertFalse((self.project / "variants").exists())
+        self.assertEqual(self.pin(), old_pin)
+        bootstrap.write(file, plan())
+        self.call("run", "--project", str(self.project), "--", "compile", str(file))
+        self.assertNotIn("generation_route", bootstrap.read(self.project / "variants/sample/spec.json"))
+
     def test_pending_and_uncertain_jobs_block_upgrade(self):
         self.newer()
         record = self.project / "variants/test/run.json"

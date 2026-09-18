@@ -4,6 +4,7 @@ from pathlib import Path
 
 from .assembly import contract_hash, fields, inside, validate_contract
 from .creative import assemble as compile_spec
+from .generation_route import ROUTES
 from .project import asset_path, validate_spec
 from .runner import positive_number
 from .storage import digest, read
@@ -141,4 +142,4 @@ def inspect(root):
     check_productions(root, project["assets"])
     check_assembly_variations(root, project["assets"])
     return {"compatible": True, "project_format": project["format"],
-            "variants_checked": count, "migration_required": False}
+            "variants_checked": count, "migration_required": False, "generation_routes": list(ROUTES)}
